@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import WaveSurfer from 'wavesurfer.js';
 
 // Timeline-based data model
 interface Clip {
@@ -65,6 +66,14 @@ let nextTrackId = 1;
 let pixelsPerSecond = 100; // Zoom level: 100px = 1 second
 let minZoom = 20;
 let maxZoom = 400;
+
+// Waveform cache: sourceFile path -> peaks data
+interface WaveformData {
+  peaks: number[];
+  duration: number;
+}
+const waveformCache = new Map<string, WaveformData>();
+const waveformLoadingSet = new Set<string>();
 
 // DOM Elements
 let timelineContainer: HTMLElement;
@@ -184,6 +193,97 @@ function getOrCreateMainAudioTrack(): Track {
 }
 
 // ============================================================================
+// Waveform Generation Functions
+// ============================================================================
+
+async function generateWaveformData(sourceFile: string): Promise<WaveformData | null> {
+  // Check cache first
+  if (waveformCache.has(sourceFile)) {
+    return waveformCache.get(sourceFile)!;
+  }
+
+  // Check if already loading
+  if (waveformLoadingSet.has(sourceFile)) {
+    return null;
+  }
+
+  waveformLoadingSet.add(sourceFile);
+
+  try {
+    // Create a temporary container for WaveSurfer (off-screen)
+    const tempContainer = document.createElement('div');
+    tempContainer.style.display = 'none';
+    document.body.appendChild(tempContainer);
+
+    // Create WaveSurfer instance
+    const wavesurfer = WaveSurfer.create({
+      container: tempContainer,
+      height: 0,
+      normalize: true,
+      barWidth: 2,
+    });
+
+    // Load the audio file
+    const audioUrl = convertFileSrc(sourceFile);
+    await wavesurfer.load(audioUrl);
+
+    // Wait for ready
+    await new Promise<void>((resolve) => {
+      wavesurfer.on('ready', () => resolve());
+    });
+
+    // Get the peaks data
+    const backend = (wavesurfer as any).backend;
+    const peaks = backend.getPeaks(500); // Get 500 samples
+    const duration = wavesurfer.getDuration();
+
+    const waveformData: WaveformData = {
+      peaks: Array.from(peaks),
+      duration
+    };
+
+    // Cache it
+    waveformCache.set(sourceFile, waveformData);
+
+    // Clean up
+    wavesurfer.destroy();
+    document.body.removeChild(tempContainer);
+
+    return waveformData;
+  } catch (error) {
+    console.error('Error generating waveform:', error);
+    return null;
+  } finally {
+    waveformLoadingSet.delete(sourceFile);
+  }
+}
+
+function drawWaveformToCanvas(canvas: HTMLCanvasElement, peaks: number[], clipWidth: number, clipHeight: number) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  canvas.width = clipWidth;
+  canvas.height = clipHeight;
+
+  // Clear canvas
+  ctx.clearRect(0, 0, clipWidth, clipHeight);
+
+  // Draw waveform
+  const barWidth = clipWidth / peaks.length;
+  const heightScale = clipHeight / 2;
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+
+  for (let i = 0; i < peaks.length; i++) {
+    const x = i * barWidth;
+    const barHeight = Math.abs(peaks[i]) * heightScale;
+    const y = heightScale - barHeight;
+
+    ctx.fillRect(x, y, Math.max(1, barWidth - 0.5), barHeight * 2);
+  }
+}
+
+// ============================================================================
 // Timeline Rendering Functions
 // ============================================================================
 
@@ -224,8 +324,25 @@ function renderClip(clip: Clip): HTMLElement {
   const clipEl = document.createElement('div');
   clipEl.className = 'timeline-clip';
   clipEl.dataset.clipId = clip.id;
+  const clipWidth = clip.duration * pixelsPerSecond;
   clipEl.style.left = `${clip.startTime * pixelsPerSecond}px`;
-  clipEl.style.width = `${clip.duration * pixelsPerSecond}px`;
+  clipEl.style.width = `${clipWidth}px`;
+
+  // Waveform canvas (background)
+  const waveformCanvas = document.createElement('canvas');
+  waveformCanvas.className = 'timeline-clip-waveform';
+  clipEl.appendChild(waveformCanvas);
+
+  // Try to load and draw waveform
+  generateWaveformData(clip.sourceFile).then(waveformData => {
+    if (waveformData && waveformData.peaks.length > 0) {
+      drawWaveformToCanvas(waveformCanvas, waveformData.peaks, clipWidth, 44);
+    }
+  });
+
+  // Clip info overlay
+  const clipInfo = document.createElement('div');
+  clipInfo.className = 'timeline-clip-info';
 
   const clipName = document.createElement('div');
   clipName.className = 'timeline-clip-name';
@@ -235,8 +352,9 @@ function renderClip(clip: Clip): HTMLElement {
   clipDuration.className = 'timeline-clip-duration';
   clipDuration.textContent = formatTime(clip.duration);
 
-  clipEl.appendChild(clipName);
-  clipEl.appendChild(clipDuration);
+  clipInfo.appendChild(clipName);
+  clipInfo.appendChild(clipDuration);
+  clipEl.appendChild(clipInfo);
 
   return clipEl;
 }
