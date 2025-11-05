@@ -61,7 +61,19 @@ let mainAudioVolume: number = 100;
 let nextClipId = 1;
 let nextTrackId = 1;
 
+// Timeline UI state
+let pixelsPerSecond = 100; // Zoom level: 100px = 1 second
+let minZoom = 20;
+let maxZoom = 400;
+
 // DOM Elements
+let timelineContainer: HTMLElement;
+let timelineRuler: HTMLElement;
+let timelineTracks: HTMLElement;
+let timelinePlayhead: HTMLElement;
+let zoomInBtn: HTMLElement;
+let zoomOutBtn: HTMLElement;
+let zoomLevelSpan: HTMLElement;
 let imageUploadArea: HTMLElement;
 let imagePlaceholder: HTMLElement;
 let imagePreview: HTMLImageElement;
@@ -172,6 +184,135 @@ function getOrCreateMainAudioTrack(): Track {
 }
 
 // ============================================================================
+// Timeline Rendering Functions
+// ============================================================================
+
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+}
+
+function renderTimelineRuler(durationSeconds: number) {
+  if (!timelineRuler) return;
+
+  timelineRuler.innerHTML = '';
+  const totalWidth = durationSeconds * pixelsPerSecond;
+  timelineRuler.style.width = `${totalWidth}px`;
+
+  // Determine interval based on zoom level
+  let interval = 1; // 1 second
+  if (pixelsPerSecond < 50) interval = 10;
+  else if (pixelsPerSecond < 100) interval = 5;
+
+  for (let i = 0; i <= durationSeconds; i += interval) {
+    const marker = document.createElement('div');
+    marker.className = 'timeline-marker';
+    marker.style.left = `${i * pixelsPerSecond}px`;
+
+    const label = document.createElement('span');
+    label.className = 'timeline-marker-label';
+    label.textContent = formatTime(i);
+    marker.appendChild(label);
+
+    timelineRuler.appendChild(marker);
+  }
+}
+
+function renderClip(clip: Clip): HTMLElement {
+  const clipEl = document.createElement('div');
+  clipEl.className = 'timeline-clip';
+  clipEl.dataset.clipId = clip.id;
+  clipEl.style.left = `${clip.startTime * pixelsPerSecond}px`;
+  clipEl.style.width = `${clip.duration * pixelsPerSecond}px`;
+
+  const clipName = document.createElement('div');
+  clipName.className = 'timeline-clip-name';
+  clipName.textContent = clip.sourceName;
+
+  const clipDuration = document.createElement('div');
+  clipDuration.className = 'timeline-clip-duration';
+  clipDuration.textContent = formatTime(clip.duration);
+
+  clipEl.appendChild(clipName);
+  clipEl.appendChild(clipDuration);
+
+  return clipEl;
+}
+
+function renderTrack(track: Track): HTMLElement {
+  const trackEl = document.createElement('div');
+  trackEl.className = 'timeline-track';
+  trackEl.dataset.trackId = track.id;
+
+  const trackHeader = document.createElement('div');
+  trackHeader.className = 'timeline-track-header';
+  trackHeader.textContent = track.name;
+
+  const trackContent = document.createElement('div');
+  trackContent.className = 'timeline-track-content';
+
+  // Render all clips in this track
+  track.clips.forEach(clip => {
+    const clipEl = renderClip(clip);
+    trackContent.appendChild(clipEl);
+  });
+
+  trackEl.appendChild(trackHeader);
+  trackEl.appendChild(trackContent);
+
+  return trackEl;
+}
+
+function renderTimeline() {
+  if (!timelineTracks || !timelineContainer) return;
+
+  // Show timeline, hide legacy playlist
+  timelineContainer.style.display = 'block';
+  if (audioPlaylist) audioPlaylist.style.display = 'none';
+
+  // Clear existing tracks
+  timelineTracks.innerHTML = '';
+
+  // Calculate total duration
+  const duration = _getTotalTimelineDuration() || 60;
+
+  // Render ruler
+  renderTimelineRuler(duration);
+
+  // Render each track
+  timeline.tracks.forEach(track => {
+    const trackEl = renderTrack(track);
+    timelineTracks.appendChild(trackEl);
+  });
+
+  // Update playhead position
+  updatePlayheadPosition();
+}
+
+function updatePlayheadPosition() {
+  if (!timelinePlayhead) return;
+  timelinePlayhead.style.left = `${timeline.playheadPosition * pixelsPerSecond}px`;
+}
+
+function setZoom(newPixelsPerSecond: number) {
+  pixelsPerSecond = Math.max(minZoom, Math.min(maxZoom, newPixelsPerSecond));
+  if (zoomLevelSpan) {
+    zoomLevelSpan.textContent = `${Math.round((pixelsPerSecond / 100) * 100)}%`;
+  }
+  renderTimeline();
+}
+
+function zoomIn() {
+  setZoom(pixelsPerSecond * 1.5);
+}
+
+function zoomOut() {
+  setZoom(pixelsPerSecond / 1.5);
+}
+
+// ============================================================================
 // Legacy Functions (for backward compatibility)
 // ============================================================================
 
@@ -264,8 +405,14 @@ async function selectAudio() {
         }
       }
 
-      renderPlaylist();
-      renderAssemblyPreview();
+      // Render timeline (new) or playlist (legacy fallback)
+      if (timeline.tracks.length > 0 && timeline.tracks.some(t => t.clips.length > 0)) {
+        renderTimeline();
+      } else {
+        renderPlaylist();
+        renderAssemblyPreview();
+      }
+
       updateConvertButton();
 
       // Show volume control when audio files are added
@@ -650,6 +797,15 @@ window.addEventListener("DOMContentLoaded", () => {
   assemblyPreview = document.querySelector("#assembly-preview")!;
   assemblyTimeline = document.querySelector("#assembly-timeline")!;
 
+  // Timeline elements
+  timelineContainer = document.querySelector("#timeline-container")!;
+  timelineRuler = document.querySelector("#timeline-ruler")!;
+  timelineTracks = document.querySelector("#timeline-tracks")!;
+  timelinePlayhead = document.querySelector("#timeline-playhead")!;
+  zoomInBtn = document.querySelector("#zoom-in")!;
+  zoomOutBtn = document.querySelector("#zoom-out")!;
+  zoomLevelSpan = document.querySelector("#zoom-level")!;
+
   // Event listeners
   imageUploadArea?.addEventListener('click', selectImage);
   audioUploadArea?.addEventListener('click', selectAudio);
@@ -694,4 +850,8 @@ window.addEventListener("DOMContentLoaded", () => {
       closeSettings();
     }
   });
+
+  // Timeline zoom controls
+  zoomInBtn?.addEventListener('click', zoomIn);
+  zoomOutBtn?.addEventListener('click', zoomOut);
 });

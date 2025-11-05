@@ -713,3 +713,188 @@ h1 {
   transform: translateY(-1px);
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
+
+/* ============================================================================
+   Timeline Editor Styles
+   ============================================================================ */
+
+.timeline-container {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 1rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+}
+
+.timeline-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  background: #2a2a2a;
+  border-radius: 6px;
+}
+
+.timeline-control-btn {
+  background: #3a3a3a;
+  color: white;
+  border: none;
+  padding: 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+}
+
+.timeline-control-btn:hover {
+  background: #4a4a4a;
+}
+
+.timeline-time {
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  color: #00ff88;
+  font-weight: bold;
+}
+
+.timeline-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+#zoom-level {
+  font-size: 12px;
+  color: #888;
+  min-width: 50px;
+  text-align: center;
+}
+
+.timeline-ruler {
+  position: relative;
+  height: 40px;
+  background: #252525;
+  border-bottom: 2px solid #3a3a3a;
+  margin-bottom: 0.5rem;
+}
+
+.timeline-marker {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: #3a3a3a;
+}
+
+.timeline-marker-label {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 11px;
+  color: #888;
+  font-family: 'Courier New', monospace;
+  white-space: nowrap;
+}
+
+.timeline-tracks {
+  position: relative;
+  min-height: 100px;
+}
+
+.timeline-track {
+  position: relative;
+  margin-bottom: 0.5rem;
+  background: #2a2a2a;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.timeline-track-header {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 120px;
+  background: #333;
+  padding: 0.75rem;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ddd;
+  border-right: 1px solid #444;
+  display: flex;
+  align-items: center;
+  z-index: 10;
+}
+
+.timeline-track-content {
+  position: relative;
+  min-height: 60px;
+  margin-left: 120px;
+}
+
+.timeline-clip {
+  position: absolute;
+  top: 8px;
+  height: 44px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.5rem;
+  color: white;
+  font-size: 11px;
+  cursor: move;
+  overflow: hidden;
+  transition: transform 0.1s, box-shadow 0.1s;
+  user-select: none;
+}
+
+.timeline-clip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.timeline-clip-name {
+  font-weight: 600;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline-clip-duration {
+  font-size: 10px;
+  opacity: 0.8;
+  font-family: 'Courier New', monospace;
+}
+
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #ff4444;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 0 8px rgba(255, 68, 68, 0.6);
+}
+
+.timeline-playhead::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -6px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid #ff4444;
+}

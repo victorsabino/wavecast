@@ -56,11 +56,29 @@
               <span class="file-info">Supports MP3</span>
             </div>
           </div>
-          <div id="audio-playlist" class="playlist"></div>
-          <div id="assembly-preview" class="assembly-preview" style="display: none;">
-            <h3>Assembly Preview</h3>
-            <div id="assembly-timeline" class="assembly-timeline"></div>
+          <!-- Timeline Editor -->
+          <div id="timeline-container" class="timeline-container" style="display: none;">
+            <div class="timeline-controls">
+              <button id="timeline-play" class="timeline-control-btn" title="Play/Pause (Space)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+              </button>
+              <span id="timeline-time" class="timeline-time">00:00.000</span>
+              <div class="timeline-zoom-controls">
+                <button id="zoom-out" class="timeline-control-btn" title="Zoom Out (-)">-</button>
+                <span id="zoom-level">100%</span>
+                <button id="zoom-in" class="timeline-control-btn" title="Zoom In (+)">+</button>
+              </div>
+            </div>
+            <div class="timeline-ruler" id="timeline-ruler"></div>
+            <div class="timeline-tracks" id="timeline-tracks"></div>
+            <div class="timeline-playhead" id="timeline-playhead"></div>
           </div>
+
+          <!-- Legacy playlist (hidden when timeline is active) -->
+          <div id="audio-playlist" class="playlist"></div>
+
           <div id="audio-volume-control" class="volume-control" style="display: none;">
             <label for="audio-volume">Main Audio Volume: <span id="audio-volume-value">100</span>%</label>
             <input type="range" id="audio-volume" min="0" max="100" value="100" />
