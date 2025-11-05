@@ -2,6 +2,34 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
+// Timeline-based data model
+interface Clip {
+  id: string;
+  sourceFile: string;
+  sourceName: string;
+  trackId: string;
+  startTime: number;      // Position in timeline (seconds)
+  duration: number;       // Clip duration (after trimming)
+  trimStart: number;      // Trim from source start (seconds)
+  trimEnd: number;        // Trim from source end (seconds)
+  sourceDuration: number; // Original file duration
+}
+
+interface Track {
+  id: string;
+  type: 'audio' | 'background';
+  name: string;
+  clips: Clip[];
+  volume: number;
+  muted: boolean;
+}
+
+interface Timeline {
+  tracks: Track[];
+  playheadPosition: number;
+}
+
+// Legacy interface for backward compatibility during migration
 interface AudioFile {
   path: string;
   name: string;
@@ -11,8 +39,15 @@ interface AudioFile {
 let currentAudio: HTMLAudioElement | null = null;
 let currentPlayingIndex: number | null = null;
 
+// Timeline state
+let timeline: Timeline = {
+  tracks: [],
+  playheadPosition: 0
+};
+
+// Legacy state (will be migrated)
 let selectedImage: string | null = null;
-let audioFiles: AudioFile[] = [];
+let audioFiles: AudioFile[] = []; // Keep for backward compatibility during migration
 let backgroundStyle: string = "cover";
 let lastGeneratedVideo: string | null = null;
 let vimeoToken: string = "";
@@ -21,6 +56,10 @@ let autoUpload: boolean = false;
 let bgMusicFile: string | null = null;
 let bgMusicVolume: number = 30;
 let mainAudioVolume: number = 100;
+
+// ID generation
+let nextClipId = 1;
+let nextTrackId = 1;
 
 // DOM Elements
 let imageUploadArea: HTMLElement;
@@ -48,9 +87,99 @@ let audioVolumeValue: HTMLElement;
 let assemblyPreview: HTMLElement;
 let assemblyTimeline: HTMLElement;
 
+// ============================================================================
+// Timeline Utility Functions
+// ============================================================================
+
+function generateClipId(): string {
+  return `clip-${nextClipId++}`;
+}
+
+function generateTrackId(): string {
+  return `track-${nextTrackId++}`;
+}
+
+// Will be used in Phase 3+
+function _getClipById(clipId: string): Clip | null {
+  for (const track of timeline.tracks) {
+    const clip = track.clips.find(c => c.id === clipId);
+    if (clip) return clip;
+  }
+  return null;
+}
+
+function getTrackById(trackId: string): Track | null {
+  return timeline.tracks.find(t => t.id === trackId) || null;
+}
+
+// Will be used in Phase 2+
+function _getTotalTimelineDuration(): number {
+  let maxDuration = 0;
+  for (const track of timeline.tracks) {
+    for (const clip of track.clips) {
+      const clipEnd = clip.startTime + clip.duration;
+      if (clipEnd > maxDuration) {
+        maxDuration = clipEnd;
+      }
+    }
+  }
+  return maxDuration;
+}
+
+function addClipToTrack(clip: Clip, trackId: string): boolean {
+  const track = getTrackById(trackId);
+  if (!track) return false;
+
+  track.clips.push(clip);
+  track.clips.sort((a, b) => a.startTime - b.startTime);
+  return true;
+}
+
+// Will be used in Phase 4+
+function _removeClipFromTrack(clipId: string, trackId: string): boolean {
+  const track = getTrackById(trackId);
+  if (!track) return false;
+
+  const index = track.clips.findIndex(c => c.id === clipId);
+  if (index === -1) return false;
+
+  track.clips.splice(index, 1);
+  return true;
+}
+
+// Expose unused functions to window to prevent TS errors (temporary)
+(window as any).__timeline_utils = { _getClipById, _getTotalTimelineDuration, _removeClipFromTrack };
+
+function createDefaultAudioTrack(): Track {
+  const track: Track = {
+    id: generateTrackId(),
+    type: 'audio',
+    name: 'Audio Track 1',
+    clips: [],
+    volume: 100,
+    muted: false
+  };
+  timeline.tracks.push(track);
+  return track;
+}
+
+function getOrCreateMainAudioTrack(): Track {
+  let mainTrack = timeline.tracks.find(t => t.type === 'audio');
+  if (!mainTrack) {
+    mainTrack = createDefaultAudioTrack();
+  }
+  return mainTrack;
+}
+
+// ============================================================================
+// Legacy Functions (for backward compatibility)
+// ============================================================================
+
 function updateConvertButton() {
   if (convertBtn) {
-    convertBtn.disabled = !selectedImage || audioFiles.length === 0;
+    // Check both legacy and new timeline
+    const hasAudio = audioFiles.length > 0 || timeline.tracks.some(t => t.clips.length > 0);
+    convertBtn.disabled = !selectedImage || !hasAudio;
   }
 }
 
@@ -94,15 +223,46 @@ async function selectAudio() {
 
     if (selected) {
       const files = Array.isArray(selected) ? selected : [selected];
+      const mainTrack = getOrCreateMainAudioTrack();
 
-      files.forEach((filePath: string) => {
+      // Calculate starting position (after existing clips)
+      let currentPosition = 0;
+      if (mainTrack.clips.length > 0) {
+        const lastClip = mainTrack.clips[mainTrack.clips.length - 1];
+        currentPosition = lastClip.startTime + lastClip.duration;
+      }
+
+      for (const filePath of files) {
         const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
 
-        // Check if file already exists
-        if (!audioFiles.some(f => f.path === filePath)) {
+        // Check if file already exists in legacy array
+        const existsInLegacy = audioFiles.some(f => f.path === filePath);
+
+        // Check if file already exists in timeline
+        const existsInTimeline = mainTrack.clips.some(c => c.sourceFile === filePath);
+
+        if (!existsInLegacy && !existsInTimeline) {
+          // Add to legacy array for backward compatibility
           audioFiles.push({ path: filePath, name: fileName });
+
+          // Create new clip and add to timeline
+          // Note: Duration will be set to 0 initially, will be updated when we add metadata extraction
+          const clip: Clip = {
+            id: generateClipId(),
+            sourceFile: filePath,
+            sourceName: fileName,
+            trackId: mainTrack.id,
+            startTime: currentPosition,
+            duration: 60, // Placeholder: will be replaced with actual duration in next step
+            trimStart: 0,
+            trimEnd: 0,
+            sourceDuration: 60 // Placeholder
+          };
+
+          addClipToTrack(clip, mainTrack.id);
+          currentPosition += clip.duration; // Position next clip after this one
         }
-      });
+      }
 
       renderPlaylist();
       renderAssemblyPreview();
@@ -290,7 +450,11 @@ function removeBgMusic() {
 }
 
 async function convertToVideo() {
-  if (!selectedImage || audioFiles.length === 0) return;
+  // Check both legacy and timeline for audio
+  const hasLegacyAudio = audioFiles.length > 0;
+  const hasTimelineAudio = timeline.tracks.some(t => t.clips.length > 0);
+
+  if (!selectedImage || (!hasLegacyAudio && !hasTimelineAudio)) return;
 
   // Show progress
   if (progressSection && resultSection) {
@@ -303,9 +467,17 @@ async function convertToVideo() {
   }
 
   try {
+    // For now, continue using legacy audio paths for backward compatibility
+    // In Phase 5, we'll switch to timeline-based export with FFmpeg filter_complex
+    const audioPaths = audioFiles.length > 0
+      ? audioFiles.map(f => f.path)
+      : timeline.tracks
+          .filter(t => t.type === 'audio')
+          .flatMap(t => t.clips.map(c => c.sourceFile));
+
     const result = await invoke<string>('convert_to_video', {
       imagePath: selectedImage,
-      audioPaths: audioFiles.map(f => f.path),
+      audioPaths: audioPaths,
       backgroundStyle: backgroundStyle,
       bgMusicPath: bgMusicFile,
       bgMusicVolume: bgMusicVolume,
