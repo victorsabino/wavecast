@@ -529,7 +529,106 @@ function handleKeyboardShortcuts(e: KeyboardEvent) {
       e.preventDefault();
       setPlayheadPosition(_getTotalTimelineDuration());
       break;
+    case 's':
+    case 'S':
+      e.preventDefault();
+      splitClipAtPlayhead();
+      break;
+    case 'Delete':
+    case 'Backspace':
+      e.preventDefault();
+      deleteClipAtPlayhead();
+      break;
   }
+}
+
+// ============================================================================
+// Clip Editing Functions
+// ============================================================================
+
+function findClipAtPlayhead(): { clip: Clip, track: Track } | null {
+  const playheadTime = timeline.playheadPosition;
+
+  for (const track of timeline.tracks) {
+    for (const clip of track.clips) {
+      if (playheadTime >= clip.startTime && playheadTime < clip.startTime + clip.duration) {
+        return { clip, track };
+      }
+    }
+  }
+  return null;
+}
+
+function splitClipAtPlayhead() {
+  const result = findClipAtPlayhead();
+  if (!result) {
+    alert('No clip at playhead position');
+    return;
+  }
+
+  const { clip, track } = result;
+  const splitTime = timeline.playheadPosition;
+  const relativeTime = splitTime - clip.startTime;
+
+  // Can't split at the very start or end
+  if (relativeTime <= 0.1 || relativeTime >= clip.duration - 0.1) {
+    alert('Cannot split at clip edge');
+    return;
+  }
+
+  // Create two new clips from the original
+  const clipA: Clip = {
+    id: generateClipId(),
+    sourceFile: clip.sourceFile,
+    sourceName: clip.sourceName,
+    trackId: track.id,
+    startTime: clip.startTime,
+    duration: relativeTime,
+    trimStart: clip.trimStart,
+    trimEnd: clip.trimEnd + (clip.duration - relativeTime), // Trim end of first part
+    sourceDuration: clip.sourceDuration
+  };
+
+  const clipB: Clip = {
+    id: generateClipId(),
+    sourceFile: clip.sourceFile,
+    sourceName: clip.sourceName,
+    trackId: track.id,
+    startTime: splitTime,
+    duration: clip.duration - relativeTime,
+    trimStart: clip.trimStart + relativeTime, // Trim start of second part
+    trimEnd: clip.trimEnd,
+    sourceDuration: clip.sourceDuration
+  };
+
+  // Remove original clip
+  const index = track.clips.indexOf(clip);
+  if (index !== -1) {
+    track.clips.splice(index, 1);
+  }
+
+  // Add new clips
+  track.clips.push(clipA, clipB);
+  track.clips.sort((a, b) => a.startTime - b.startTime);
+
+  // Re-render timeline
+  renderTimeline();
+}
+
+function deleteClipAtPlayhead() {
+  const result = findClipAtPlayhead();
+  if (!result) {
+    alert('No clip at playhead position');
+    return;
+  }
+
+  const { clip, track } = result;
+  const index = track.clips.indexOf(clip);
+  if (index !== -1) {
+    track.clips.splice(index, 1);
+  }
+
+  renderTimeline();
 }
 
 // ============================================================================
@@ -610,6 +709,19 @@ function renderClip(clip: Clip): HTMLElement {
     e.preventDefault();
     startDrag(clip.id, clip.trackId, e.clientX);
   });
+
+  // Highlight if playhead is over this clip
+  if (timeline.playheadPosition >= clip.startTime &&
+      timeline.playheadPosition < clip.startTime + clip.duration) {
+    clipEl.classList.add('clip-at-playhead');
+
+    // Add split line indicator
+    const splitIndicator = document.createElement('div');
+    splitIndicator.className = 'clip-split-indicator';
+    const relativePosition = (timeline.playheadPosition - clip.startTime) * pixelsPerSecond;
+    splitIndicator.style.left = `${relativePosition}px`;
+    clipEl.appendChild(splitIndicator);
+  }
 
   return clipEl;
 }
