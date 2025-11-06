@@ -1070,7 +1070,9 @@ function updateConvertButton() {
   if (convertBtn) {
     // Check both legacy and new timeline
     const hasAudio = audioFiles.length > 0 || timeline.tracks.some(t => t.clips.length > 0);
-    convertBtn.disabled = !selectedImage || !hasAudio;
+    const bgTypeColor = document.getElementById('bg-type-color') as HTMLInputElement;
+    const hasBackground = selectedImage || bgTypeColor?.checked;
+    convertBtn.disabled = !hasBackground || !hasAudio;
   }
 }
 
@@ -1096,9 +1098,59 @@ async function selectImage() {
       }
 
       updateConvertButton();
+      updateVideoPreview();
     }
   } catch (error) {
     console.error('Error selecting image:', error);
+  }
+}
+
+function updateVideoPreview() {
+  const previewImage = document.getElementById('preview-image') as HTMLImageElement;
+  const previewOverlay = document.getElementById('preview-overlay') as HTMLElement;
+  const previewTitle = document.getElementById('preview-title') as HTMLElement;
+  const previewPlaceholder = document.querySelector('.preview-placeholder') as HTMLElement;
+  const previewDuration = document.getElementById('preview-duration') as HTMLElement;
+  const previewClips = document.getElementById('preview-clips') as HTMLElement;
+  const videoTitleInput = document.getElementById('video-title') as HTMLInputElement;
+  const videoPreviewFrame = document.getElementById('video-preview') as HTMLElement;
+  const bgTypeColor = document.getElementById('bg-type-color') as HTMLInputElement;
+  const bgColorPicker = document.getElementById('bg-color-picker') as HTMLInputElement;
+
+  // Check if using solid color
+  const usingSolidColor = bgTypeColor?.checked;
+
+  if (usingSolidColor && bgColorPicker && videoPreviewFrame) {
+    // Show solid color background
+    videoPreviewFrame.style.background = bgColorPicker.value;
+    if (previewImage) previewImage.style.display = 'none';
+    if (previewPlaceholder) previewPlaceholder.style.display = 'none';
+  } else if (selectedImage && previewImage && previewPlaceholder && videoPreviewFrame) {
+    // Show image background
+    videoPreviewFrame.style.background = '#1a1a1a';
+    previewImage.src = convertFileSrc(selectedImage);
+    previewImage.style.display = 'block';
+    previewPlaceholder.style.display = 'none';
+  }
+
+  // Update title overlay
+  if (previewOverlay && previewTitle && videoTitleInput) {
+    const title = videoTitleInput.value || 'Video Title';
+    previewTitle.textContent = title;
+    if (selectedImage || usingSolidColor) {
+      previewOverlay.style.display = 'block';
+    }
+  }
+
+  // Update stats
+  const totalDuration = _getTotalTimelineDuration();
+  const totalClips = timeline.tracks.reduce((sum, track) => sum + track.clips.length, 0);
+
+  if (previewDuration) {
+    previewDuration.textContent = totalDuration > 0 ? formatTime(totalDuration) : '--';
+  }
+  if (previewClips) {
+    previewClips.textContent = totalClips.toString();
   }
 }
 
@@ -1169,6 +1221,8 @@ async function selectAudio() {
       if (audioVolumeControl && audioFiles.length > 0) {
         audioVolumeControl.style.display = 'block';
       }
+
+      updateVideoPreview();
     }
   } catch (error) {
     console.error('Error selecting audio:', error);
@@ -1671,6 +1725,33 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Initialize time display
   updateTimeDisplay();
+
+  // Video title input listener for preview
+  const videoTitleInput = document.getElementById('video-title') as HTMLInputElement;
+  videoTitleInput?.addEventListener('input', updateVideoPreview);
+
+  // Background type selector listeners
+  const bgTypeImage = document.getElementById('bg-type-image') as HTMLInputElement;
+  const bgTypeColor = document.getElementById('bg-type-color') as HTMLInputElement;
+  const imageUploadArea = document.getElementById('image-upload-area') as HTMLElement;
+  const colorPickerArea = document.getElementById('color-picker-area') as HTMLElement;
+  const bgColorPicker = document.getElementById('bg-color-picker') as HTMLInputElement;
+
+  bgTypeImage?.addEventListener('change', () => {
+    if (imageUploadArea) imageUploadArea.style.display = 'block';
+    if (colorPickerArea) colorPickerArea.style.display = 'none';
+    updateVideoPreview();
+  });
+
+  bgTypeColor?.addEventListener('change', () => {
+    if (imageUploadArea) imageUploadArea.style.display = 'none';
+    if (colorPickerArea) colorPickerArea.style.display = 'block';
+    selectedImage = null; // Clear image selection
+    updateVideoPreview();
+    updateConvertButton();
+  });
+
+  bgColorPicker?.addEventListener('input', updateVideoPreview);
 
   // Listen for export progress events from Rust
   listen('export-progress', (event: any) => {

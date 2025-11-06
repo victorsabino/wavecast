@@ -16,7 +16,17 @@
       <div class="upload-section">
         <div class="upload-card">
           <div class="upload-header">
-            <h2>Background Image</h2>
+            <h2>Background</h2>
+          </div>
+          <div class="background-type-selector">
+            <label>
+              <input type="radio" name="bg-type" value="image" checked id="bg-type-image">
+              Image
+            </label>
+            <label>
+              <input type="radio" name="bg-type" value="color" id="bg-type-color">
+              Solid Color
+            </label>
           </div>
           <div class="upload-area" id="image-upload-area">
             <div class="upload-placeholder" id="image-placeholder">
@@ -30,6 +40,10 @@
             </div>
             <img id="image-preview" class="image-preview" style="display: none;" />
           </div>
+          <div id="color-picker-area" class="color-picker-area" style="display: none;">
+            <label for="bg-color-picker">Choose Background Color:</label>
+            <input type="color" id="bg-color-picker" value="#667eea">
+          </div>
           <div class="image-options" id="image-options" style="display: none;">
             <label>Background Style:</label>
             <select id="background-style">
@@ -38,6 +52,30 @@
               <option value="repeat">Repeat</option>
               <option value="center">Center</option>
             </select>
+          </div>
+        </div>
+
+        <div class="upload-card" id="video-preview-card">
+          <div class="upload-header">
+            <h2>Preview</h2>
+          </div>
+          <div class="video-preview-container">
+            <div class="video-preview-frame" id="video-preview">
+              <div class="preview-placeholder">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                <p>Preview will appear here</p>
+              </div>
+              <img id="preview-image" class="preview-image" style="display: none;" />
+              <div class="preview-overlay" id="preview-overlay" style="display: none;">
+                <h3 id="preview-title">Video Title</h3>
+              </div>
+            </div>
+            <div class="preview-info" id="preview-info">
+              <p class="preview-stat"><strong>Duration:</strong> <span id="preview-duration">--</span></p>
+              <p class="preview-stat"><strong>Clips:</strong> <span id="preview-clips">0</span></p>
+            </div>
           </div>
         </div>
 
@@ -85,41 +123,17 @@
           </div>
         </div>
 
-        <div class="upload-card">
-          <div class="upload-header">
-            <h2>Background Music (Optional)</h2>
-          </div>
-          <div class="upload-area" id="bgmusic-upload-area">
-            <div class="upload-placeholder" id="bgmusic-placeholder">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 18V5l12-2v13"/>
-                <circle cx="6" cy="18" r="3"/>
-                <circle cx="18" cy="16" r="3"/>
-              </svg>
-              <p>Click to select background music</p>
-              <span class="file-info">Supports MP3 - Will loop throughout video</span>
-            </div>
-            <div id="bgmusic-info" class="bgmusic-info" style="display: none;">
-              <div class="playlist-item-info">
-                <svg class="playlist-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 18V5l12-2v13"/>
-                  <circle cx="6" cy="18" r="3"/>
-                  <circle cx="18" cy="16" r="3"/>
-                </svg>
-                <span id="bgmusic-name" class="playlist-item-name"></span>
-              </div>
-              <button id="bgmusic-remove" class="playlist-item-remove">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="18" y1="6" x2="6" y2="18"/>
-                  <line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-          <div id="bgmusic-options" class="volume-control" style="display: none;">
-            <label for="bgmusic-volume">Background Music Volume: <span id="volume-value">30</span>%</label>
-            <input type="range" id="bgmusic-volume" min="0" max="100" value="30" />
-          </div>
+      </div>
+
+      <div class="video-metadata-section">
+        <h3>Video Details</h3>
+        <div class="form-group">
+          <label for="video-title">Video Title</label>
+          <input type="text" id="video-title" placeholder="My Awesome Video" value="Converted Video">
+        </div>
+        <div class="form-group">
+          <label for="video-description">Description (Optional)</label>
+          <textarea id="video-description" rows="3" placeholder="Enter video description..."></textarea>
         </div>
       </div>
 
