@@ -1,11 +1,21 @@
 use std::path::PathBuf;
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::download::auto_download;
+use ffmpeg_sidecar::event::FfmpegEvent;
 use serde::{Deserialize, Serialize};
+use tauri::Emitter;
 
 #[derive(Serialize, Deserialize)]
 struct VimeoUploadResponse {
     link: String,
+}
+
+#[derive(Clone, Serialize)]
+struct ExportProgress {
+    frame: u32,
+    fps: f32,
+    time: String,
+    progress: f64,
 }
 
 // Timeline-based structures
@@ -27,6 +37,26 @@ struct TimelineTrack {
 #[derive(Serialize, Deserialize, Debug)]
 struct TimelineData {
     tracks: Vec<TimelineTrack>,
+}
+
+fn parse_time_to_seconds(time_str: &str) -> f64 {
+    // Parse FFmpeg time format (HH:MM:SS.ms or just seconds)
+    let parts: Vec<&str> = time_str.split(':').collect();
+
+    match parts.len() {
+        1 => {
+            // Just seconds (e.g., "123.45")
+            time_str.parse::<f64>().unwrap_or(0.0)
+        }
+        3 => {
+            // HH:MM:SS.ms format
+            let hours: f64 = parts[0].parse().unwrap_or(0.0);
+            let minutes: f64 = parts[1].parse().unwrap_or(0.0);
+            let seconds: f64 = parts[2].parse().unwrap_or(0.0);
+            hours * 3600.0 + minutes * 60.0 + seconds
+        }
+        _ => 0.0
+    }
 }
 
 fn generate_filter_complex(clips: &[TimelineClip], main_volume: f64) -> String {
@@ -61,6 +91,7 @@ fn generate_filter_complex(clips: &[TimelineClip], main_volume: f64) -> String {
 
 #[tauri::command]
 fn convert_timeline_to_video(
+    app: tauri::AppHandle,
     image_path: String,
     timeline: TimelineData,
     background_style: String,
@@ -129,15 +160,61 @@ fn convert_timeline_to_video(
         "-c:a", "aac",
         "-b:a", "192k",
         "-pix_fmt", "yuv420p",
-        "-shortest"
+        "-shortest",
+        "-progress", "pipe:1"
     ])
     .overwrite()
     .output(output_path.to_str().unwrap());
 
-    cmd.spawn()
-        .map_err(|e| format!("Failed to spawn FFmpeg: {}", e))?
-        .wait()
+    // Spawn process and capture events
+    let mut child = cmd.spawn()
+        .map_err(|e| format!("Failed to spawn FFmpeg: {}", e))?;
+
+    // Calculate total duration for progress percentage
+    let total_duration: f64 = all_clips.iter()
+        .map(|clip| clip.start_time + clip.duration)
+        .fold(0.0, f64::max);
+
+    // Iterate over FFmpeg events
+    let iter = child.iter()
+        .map_err(|e| format!("Failed to get FFmpeg iterator: {}", e))?;
+
+    for event in iter {
+        match event {
+            FfmpegEvent::Progress(progress) => {
+                // Parse time string (format: "HH:MM:SS.ms" or similar)
+                let current_time = parse_time_to_seconds(&progress.time);
+                let progress_pct = if total_duration > 0.0 {
+                    (current_time / total_duration * 100.0).min(100.0)
+                } else {
+                    0.0
+                };
+
+                let progress_data = ExportProgress {
+                    frame: progress.frame,
+                    fps: progress.fps,
+                    time: progress.time.clone(),
+                    progress: progress_pct,
+                };
+
+                // Emit progress event
+                let _ = app.emit("export-progress", progress_data);
+            }
+            FfmpegEvent::Log(_level, msg) => {
+                // Optionally log messages
+                println!("FFmpeg: {}", msg);
+            }
+            _ => {}
+        }
+    }
+
+    // Wait for completion
+    let result = child.wait()
         .map_err(|e| format!("Failed to execute FFmpeg: {}", e))?;
+
+    if !result.success() {
+        return Err("FFmpeg encoding failed".to_string());
+    }
 
     Ok(output_path.to_str().unwrap().to_string())
 }
@@ -216,7 +293,7 @@ fn convert_to_video(
     let main_volume = main_audio_volume as f32 / 100.0;
 
     // If background music is provided, we need to mix the audio
-    let output = if let Some(bg_music) = bg_music_path {
+    let _output = if let Some(bg_music) = bg_music_path {
         let bg_volume = bg_music_volume as f32 / 100.0;
 
         // Create audio filter for mixing: loop bg music, adjust volumes, and mix

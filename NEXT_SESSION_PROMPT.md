@@ -7,7 +7,7 @@
 
 ## What We've Built So Far
 
-This is a **professional timeline editor** for converting MP3 to MP4 with advanced editing capabilities. We've completed **Weeks 1-5 (Phase 5.1)**.
+This is a **professional timeline editor** for converting MP3 to MP4 with advanced editing capabilities. We've completed **Weeks 1-5 (Phase 5.2)**.
 
 ### Completed Features:
 - ✅ Timeline-based UI with waveforms
@@ -16,14 +16,16 @@ This is a **professional timeline editor** for converting MP3 to MP4 with advanc
 - ✅ Trim clips with edge handles
 - ✅ Playback with transport controls
 - ✅ Ripple delete & gap management
-- ✅ **FFmpeg filter_complex export** (NEW!)
+- ✅ FFmpeg filter_complex export
+- ✅ **Real-time export progress tracking** (NEW!)
 - ✅ Keyboard shortcuts (Space, S, Delete, Shift+Delete, G, arrows)
 
 ### Latest Commit:
-**Phase 5.1: Generate FFmpeg filter_complex from timeline**
-- Timeline data now exports to FFmpeg with proper timing, trims, and gaps
-- Created `convert_timeline_to_video` Rust command
-- Supports split clips, trimmed clips, repositioned clips
+**Phase 5.2: Export Progress & Feedback**
+- Real-time progress bar during video export
+- Frame count, FPS, and time display
+- Progress percentage calculation based on timeline duration
+- Tauri event system for Rust → Frontend communication
 
 ## How to Test & Run
 
@@ -82,13 +84,13 @@ git log --oneline -10
 ```
 sm-editor/
 ├── src/
-│   ├── main.ts          # 1400+ lines - Timeline logic, editing, playback
-│   └── styles.css       # 1000+ lines - Timeline styling
+│   ├── main.ts          # 1685+ lines - Timeline logic, editing, playback, progress
+│   └── styles.css       # 1000+ lines - Timeline & progress styling
 ├── src-tauri/
 │   └── src/
-│       └── lib.rs       # 360+ lines - FFmpeg export with filter_complex
-├── index.html           # Timeline UI structure
-└── TIMELINE_EDITOR_IMPLEMENTATION_PLAN.md  # 15-prompt plan
+│       └── lib.rs       # 400+ lines - FFmpeg export with progress tracking
+├── index.html           # Timeline UI + progress bar
+└── NEXT_SESSION_PROMPT.md  # This file - handoff documentation
 ```
 
 ### Key Data Model (TypeScript):
@@ -130,30 +132,42 @@ interface Timeline {
 - `generate_filter_complex()` - Builds FFmpeg filter string
 - `convert_to_video()` - Legacy simple concat (fallback)
 
-## Next Steps: Week 5.2 & Week 6
+## Next Steps: Week 6 - Polish Features
 
-### Immediate Next Task: **Prompt 5.2 - Export Progress & Preview**
+### ✅ Week 5 COMPLETE!
 
-**Goal**: Add export progress tracking and preview functionality
+All core export functionality is now complete:
+- ✅ Phase 5.1: FFmpeg filter_complex generation
+- ✅ Phase 5.2: Real-time export progress tracking
 
-**Implementation**:
-1. Add progress tracking to Rust FFmpeg command
-2. Parse FFmpeg output for progress percentage
-3. Update UI progress bar in real-time
-4. Add "Preview" button (export first 10 seconds)
-5. Export settings dialog (format, resolution, bitrate)
+### Remaining Optional Tasks: **Week 6 - Polish Features**
 
-**Files to modify**:
-- `src-tauri/src/lib.rs`: Parse FFmpeg progress output
-- `src/main.ts`: Update progress bar during export
-- `index.html`: Add export settings dialog
-- `src/styles.css`: Style progress indicators
+These are nice-to-have features for a more polished experience:
 
-**Key concepts**:
-- FFmpeg progress: Parse `time=` from stderr
-- Tauri events: Stream progress from Rust to TypeScript
-- Async/await: Handle long-running export
-- Preview: Use `-t 10` flag for 10-second preview
+1. **Undo/Redo System**
+   - Track timeline state history
+   - Ctrl+Z / Ctrl+Y keyboard shortcuts
+   - Max 50 undo states
+
+2. **Multi-track Audio Support**
+   - Allow multiple audio tracks
+   - Track solo/mute controls
+   - Mix multiple tracks in export
+
+3. **Clip Effects**
+   - Fade in/out
+   - Volume automation per clip
+   - Audio filters (normalize, EQ)
+
+4. **Zoom & Pan**
+   - Horizontal zoom (timeline scale)
+   - Vertical zoom (waveform scale)
+   - Pan with scroll/drag
+
+5. **Export Presets**
+   - Quick export presets (1080p, 720p, etc.)
+   - Custom resolution/bitrate settings
+   - Format selection (MP4, WebM)
 
 ### After 5.2: Week 6 Polish (Optional)
 

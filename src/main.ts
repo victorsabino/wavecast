@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import WaveSurfer from 'wavesurfer.js';
 
 // Timeline-based data model
@@ -124,6 +125,9 @@ let audioUploadArea: HTMLElement;
 let audioPlaylist: HTMLElement;
 let convertBtn: HTMLButtonElement;
 let progressSection: HTMLElement;
+let progressBar: HTMLElement;
+let progressText: HTMLElement;
+let progressDetails: HTMLElement;
 let resultSection: HTMLElement;
 let resultMessage: HTMLElement;
 let backgroundStyleSelect: HTMLSelectElement;
@@ -1351,6 +1355,17 @@ async function convertToVideo() {
     resultSection.style.display = 'none';
   }
 
+  // Reset progress UI
+  if (progressBar) {
+    progressBar.style.width = '0%';
+  }
+  if (progressText) {
+    progressText.textContent = '0%';
+  }
+  if (progressDetails) {
+    progressDetails.textContent = 'Starting export...';
+  }
+
   if (convertBtn) {
     convertBtn.disabled = true;
   }
@@ -1545,6 +1560,9 @@ window.addEventListener("DOMContentLoaded", () => {
   audioPlaylist = document.querySelector("#audio-playlist")!;
   convertBtn = document.querySelector("#convert-btn")!;
   progressSection = document.querySelector("#progress-section")!;
+  progressBar = document.querySelector("#progress-bar")!;
+  progressText = document.querySelector("#progress-text")!;
+  progressDetails = document.querySelector("#progress-details")!;
   resultSection = document.querySelector("#result-section")!;
   resultMessage = document.querySelector("#result-message")!;
   backgroundStyleSelect = document.querySelector("#background-style")!;
@@ -1649,4 +1667,19 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Initialize time display
   updateTimeDisplay();
+
+  // Listen for export progress events from Rust
+  listen('export-progress', (event: any) => {
+    const progress = event.payload;
+
+    if (progressBar) {
+      progressBar.style.width = `${progress.progress}%`;
+    }
+    if (progressText) {
+      progressText.textContent = `${Math.round(progress.progress)}%`;
+    }
+    if (progressDetails) {
+      progressDetails.textContent = `Frame: ${progress.frame} | FPS: ${progress.fps.toFixed(1)} | Time: ${progress.time}`;
+    }
+  });
 });
