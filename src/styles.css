@@ -971,6 +971,34 @@ h1 {
   background: rgba(255, 255, 255, 0.7);
 }
 
+.timeline-gap {
+  position: absolute;
+  top: 8px;
+  height: 44px;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.05) 10px,
+    rgba(255, 255, 255, 0.1) 10px,
+    rgba(255, 255, 255, 0.1) 20px
+  );
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timeline-gap-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: 'Courier New', monospace;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
 .timeline-playhead {
   position: absolute;
   top: 0;

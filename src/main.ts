@@ -202,7 +202,7 @@ function _removeClipFromTrack(clipId: string, trackId: string): boolean {
 }
 
 // Expose unused functions to window to prevent TS errors (temporary)
-(window as any).__timeline_utils = { _getClipById, _getTotalTimelineDuration, _removeClipFromTrack, _getClipAtPosition, _audioContext, _audioBuffers };
+(window as any).__timeline_utils = { _getClipById, _getTotalTimelineDuration, _removeClipFromTrack, _getClipAtPosition, _audioContext, _audioBuffers, _getGapAtTime };
 
 function createDefaultAudioTrack(): Track {
   const track: Track = {
@@ -657,7 +657,16 @@ function handleKeyboardShortcuts(e: KeyboardEvent) {
     case 'Delete':
     case 'Backspace':
       e.preventDefault();
-      deleteClipAtPlayhead();
+      if (e.shiftKey) {
+        rippleDeleteClipAtPlayhead();
+      } else {
+        deleteClipAtPlayhead();
+      }
+      break;
+    case 'g':
+    case 'G':
+      e.preventDefault();
+      closeGapAtPlayhead();
       break;
   }
 }
@@ -749,6 +758,84 @@ function deleteClipAtPlayhead() {
   }
 
   renderTimeline();
+}
+
+function rippleDeleteClipAtPlayhead() {
+  const result = findClipAtPlayhead();
+  if (!result) {
+    alert('No clip at playhead position');
+    return;
+  }
+
+  const { clip, track } = result;
+  const gapSize = clip.duration;
+  const clipEndTime = clip.startTime + clip.duration;
+
+  // Remove the clip
+  const index = track.clips.indexOf(clip);
+  if (index !== -1) {
+    track.clips.splice(index, 1);
+  }
+
+  // Shift all clips after this one left by the gap size
+  for (const c of track.clips) {
+    if (c.startTime >= clipEndTime) {
+      c.startTime -= gapSize;
+    }
+  }
+
+  renderTimeline();
+}
+
+function closeGapAtPlayhead() {
+  const playheadTime = timeline.playheadPosition;
+
+  // Find the gap (space between clips)
+  for (const track of timeline.tracks) {
+    // Sort clips by start time
+    const sortedClips = [...track.clips].sort((a, b) => a.startTime - b.startTime);
+
+    for (let i = 0; i < sortedClips.length - 1; i++) {
+      const currentClip = sortedClips[i];
+      const nextClip = sortedClips[i + 1];
+      const gapStart = currentClip.startTime + currentClip.duration;
+      const gapEnd = nextClip.startTime;
+      const gapSize = gapEnd - gapStart;
+
+      // Check if playhead is in this gap
+      if (playheadTime >= gapStart && playheadTime <= gapEnd && gapSize > 0) {
+        // Close the gap by shifting all clips after it
+        for (const c of track.clips) {
+          if (c.startTime >= gapEnd) {
+            c.startTime -= gapSize;
+          }
+        }
+        renderTimeline();
+        return;
+      }
+    }
+  }
+
+  alert('No gap at playhead position');
+}
+
+// Will be used for future gap operations
+function _getGapAtTime(time: number): { gapStart: number, gapEnd: number, track: Track } | null {
+  for (const track of timeline.tracks) {
+    const sortedClips = [...track.clips].sort((a, b) => a.startTime - b.startTime);
+
+    for (let i = 0; i < sortedClips.length - 1; i++) {
+      const currentClip = sortedClips[i];
+      const nextClip = sortedClips[i + 1];
+      const gapStart = currentClip.startTime + currentClip.duration;
+      const gapEnd = nextClip.startTime;
+
+      if (time >= gapStart && time <= gapEnd && gapEnd > gapStart) {
+        return { gapStart, gapEnd, track };
+      }
+    }
+  }
+  return null;
 }
 
 // ============================================================================
@@ -881,11 +968,38 @@ function renderTrack(track: Track): HTMLElement {
   const trackContent = document.createElement('div');
   trackContent.className = 'timeline-track-content';
 
+  // Sort clips by start time
+  const sortedClips = [...track.clips].sort((a, b) => a.startTime - b.startTime);
+
   // Render all clips in this track
-  track.clips.forEach(clip => {
+  sortedClips.forEach(clip => {
     const clipEl = renderClip(clip);
     trackContent.appendChild(clipEl);
   });
+
+  // Render gaps with visual indicators
+  for (let i = 0; i < sortedClips.length - 1; i++) {
+    const currentClip = sortedClips[i];
+    const nextClip = sortedClips[i + 1];
+    const gapStart = currentClip.startTime + currentClip.duration;
+    const gapEnd = nextClip.startTime;
+    const gapSize = gapEnd - gapStart;
+
+    if (gapSize > 0.1) { // Only show gaps larger than 0.1s
+      const gapEl = document.createElement('div');
+      gapEl.className = 'timeline-gap';
+      gapEl.style.left = `${gapStart * pixelsPerSecond}px`;
+      gapEl.style.width = `${gapSize * pixelsPerSecond}px`;
+
+      // Add gap info
+      const gapLabel = document.createElement('div');
+      gapLabel.className = 'timeline-gap-label';
+      gapLabel.textContent = formatTime(gapSize);
+      gapEl.appendChild(gapLabel);
+
+      trackContent.appendChild(gapEl);
+    }
+  }
 
   trackEl.appendChild(trackHeader);
   trackEl.appendChild(trackContent);
