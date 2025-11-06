@@ -78,6 +78,13 @@ interface DragState {
 let dragState: DragState | null = null;
 const snapThreshold = 0.5; // Snap to 0.5 second intervals
 
+// Playback state
+let isPlaying = false;
+let playbackStartTime = 0;
+let playbackRequestId: number | null = null;
+let _audioContext: AudioContext | null = null; // Will be used for audio preview
+let _audioBuffers = new Map<string, AudioBuffer>(); // Will be used for audio preview
+
 // Waveform cache: sourceFile path -> peaks data
 interface WaveformData {
   peaks: number[];
@@ -94,6 +101,8 @@ let timelinePlayhead: HTMLElement;
 let zoomInBtn: HTMLElement;
 let zoomOutBtn: HTMLElement;
 let zoomLevelSpan: HTMLElement;
+let timelinePlayBtn: HTMLElement;
+let timelineTimeDisplay: HTMLElement;
 let imageUploadArea: HTMLElement;
 let imagePlaceholder: HTMLElement;
 let imagePreview: HTMLImageElement;
@@ -180,7 +189,7 @@ function _removeClipFromTrack(clipId: string, trackId: string): boolean {
 }
 
 // Expose unused functions to window to prevent TS errors (temporary)
-(window as any).__timeline_utils = { _getClipById, _getTotalTimelineDuration, _removeClipFromTrack, _getClipAtPosition };
+(window as any).__timeline_utils = { _getClipById, _getTotalTimelineDuration, _removeClipFromTrack, _getClipAtPosition, _audioContext, _audioBuffers };
 
 function createDefaultAudioTrack(): Track {
   const track: Track = {
@@ -398,6 +407,129 @@ function endDrag() {
 
   // Re-render timeline to ensure consistency
   renderTimeline();
+}
+
+// ============================================================================
+// Playback Functions
+// ============================================================================
+
+function setPlayheadPosition(time: number) {
+  timeline.playheadPosition = Math.max(0, time);
+  updatePlayheadPosition();
+  updateTimeDisplay();
+}
+
+function updateTimeDisplay() {
+  if (timelineTimeDisplay) {
+    timelineTimeDisplay.textContent = formatTime(timeline.playheadPosition);
+  }
+}
+
+function togglePlayPause() {
+  if (isPlaying) {
+    stopPlayback();
+  } else {
+    startPlayback();
+  }
+}
+
+function startPlayback() {
+  if (isPlaying) return;
+
+  isPlaying = true;
+  playbackStartTime = performance.now() - (timeline.playheadPosition * 1000);
+
+  // Update play button icon to pause
+  if (timelinePlayBtn) {
+    timelinePlayBtn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="6" y="4" width="4" height="16"/>
+        <rect x="14" y="4" width="4" height="16"/>
+      </svg>
+    `;
+  }
+
+  // Start animation loop
+  updatePlayback();
+}
+
+function stopPlayback() {
+  isPlaying = false;
+
+  if (playbackRequestId !== null) {
+    cancelAnimationFrame(playbackRequestId);
+    playbackRequestId = null;
+  }
+
+  // Update play button icon back to play
+  if (timelinePlayBtn) {
+    timelinePlayBtn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+    `;
+  }
+}
+
+function updatePlayback() {
+  if (!isPlaying) return;
+
+  const currentTime = (performance.now() - playbackStartTime) / 1000;
+  timeline.playheadPosition = currentTime;
+
+  updatePlayheadPosition();
+  updateTimeDisplay();
+
+  // Stop at end of timeline
+  const totalDuration = _getTotalTimelineDuration();
+  if (currentTime >= totalDuration) {
+    stopPlayback();
+    timeline.playheadPosition = 0;
+    updatePlayheadPosition();
+    updateTimeDisplay();
+    return;
+  }
+
+  playbackRequestId = requestAnimationFrame(updatePlayback);
+}
+
+function handleRulerClick(e: MouseEvent) {
+  const ruler = e.currentTarget as HTMLElement;
+  const rect = ruler.getBoundingClientRect();
+  const clickX = e.clientX - rect.left;
+  const time = clickX / pixelsPerSecond;
+
+  setPlayheadPosition(time);
+}
+
+function handleKeyboardShortcuts(e: KeyboardEvent) {
+  // Don't trigger if typing in an input
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+    return;
+  }
+
+  switch (e.key) {
+    case ' ':
+      e.preventDefault();
+      togglePlayPause();
+      break;
+    case 'ArrowLeft':
+      e.preventDefault();
+      setPlayheadPosition(timeline.playheadPosition - 1);
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      setPlayheadPosition(timeline.playheadPosition + 1);
+      break;
+    case 'Home':
+      e.preventDefault();
+      setPlayheadPosition(0);
+      break;
+    case 'End':
+      e.preventDefault();
+      setPlayheadPosition(_getTotalTimelineDuration());
+      break;
+  }
 }
 
 // ============================================================================
@@ -1108,4 +1240,17 @@ window.addEventListener("DOMContentLoaded", () => {
       endDrag();
     }
   });
+
+  // Playback controls
+  timelinePlayBtn = document.querySelector('#timeline-play')!;
+  timelineTimeDisplay = document.querySelector('#timeline-time')!;
+
+  timelinePlayBtn?.addEventListener('click', togglePlayPause);
+  timelineRuler?.addEventListener('click', handleRulerClick);
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', handleKeyboardShortcuts);
+
+  // Initialize time display
+  updateTimeDisplay();
 });
