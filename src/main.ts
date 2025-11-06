@@ -1023,9 +1023,13 @@ function renderTimeline() {
 
   // Calculate total duration
   const duration = _getTotalTimelineDuration() || 60;
+  const totalWidth = duration * pixelsPerSecond;
 
   // Render ruler
   renderTimelineRuler(duration);
+
+  // Set tracks container width to match ruler
+  timelineTracks.style.width = `${totalWidth}px`;
 
   // Render each track
   timeline.tracks.forEach(track => {
