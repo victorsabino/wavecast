@@ -861,6 +861,14 @@ h1 {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
+.timeline-clip.dragging {
+  opacity: 0.7;
+  cursor: grabbing !important;
+  z-index: 1000;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+  transform: scale(1.02);
+}
+
 .timeline-clip-waveform {
   position: absolute;
   top: 0;

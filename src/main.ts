@@ -67,6 +67,17 @@ let pixelsPerSecond = 100; // Zoom level: 100px = 1 second
 let minZoom = 20;
 let maxZoom = 400;
 
+// Drag state
+interface DragState {
+  clipId: string;
+  trackId: string;
+  startX: number;
+  originalStartTime: number;
+  isDragging: boolean;
+}
+let dragState: DragState | null = null;
+const snapThreshold = 0.5; // Snap to 0.5 second intervals
+
 // Waveform cache: sourceFile path -> peaks data
 interface WaveformData {
   peaks: number[];
@@ -169,7 +180,7 @@ function _removeClipFromTrack(clipId: string, trackId: string): boolean {
 }
 
 // Expose unused functions to window to prevent TS errors (temporary)
-(window as any).__timeline_utils = { _getClipById, _getTotalTimelineDuration, _removeClipFromTrack };
+(window as any).__timeline_utils = { _getClipById, _getTotalTimelineDuration, _removeClipFromTrack, _getClipAtPosition };
 
 function createDefaultAudioTrack(): Track {
   const track: Track = {
@@ -284,6 +295,112 @@ function drawWaveformToCanvas(canvas: HTMLCanvasElement, peaks: number[], clipWi
 }
 
 // ============================================================================
+// Drag & Drop Functions
+// ============================================================================
+
+function snapToGrid(time: number, snapInterval: number): number {
+  return Math.round(time / snapInterval) * snapInterval;
+}
+
+// Will be used for snap-to-clip edges in future
+function _getClipAtPosition(trackId: string, time: number, excludeClipId?: string): Clip | null {
+  const track = getTrackById(trackId);
+  if (!track) return null;
+
+  for (const clip of track.clips) {
+    if (excludeClipId && clip.id === excludeClipId) continue;
+    if (time >= clip.startTime && time < clip.startTime + clip.duration) {
+      return clip;
+    }
+  }
+  return null;
+}
+
+function startDrag(clipId: string, trackId: string, mouseX: number) {
+  const clip = _getClipById(clipId);
+  if (!clip) return;
+
+  dragState = {
+    clipId,
+    trackId,
+    startX: mouseX,
+    originalStartTime: clip.startTime,
+    isDragging: true
+  };
+
+  // Add dragging class
+  const clipEl = document.querySelector(`[data-clip-id="${clipId}"]`) as HTMLElement;
+  if (clipEl) {
+    clipEl.classList.add('dragging');
+  }
+}
+
+function updateDrag(mouseX: number) {
+  if (!dragState || !dragState.isDragging) return;
+
+  const clip = _getClipById(dragState.clipId);
+  if (!clip) return;
+
+  // Calculate new position
+  const deltaX = mouseX - dragState.startX;
+  const deltaTime = deltaX / pixelsPerSecond;
+  let newStartTime = dragState.originalStartTime + deltaTime;
+
+  // Snap to grid
+  newStartTime = snapToGrid(newStartTime, snapThreshold);
+
+  // Prevent negative time
+  if (newStartTime < 0) newStartTime = 0;
+
+  // Check for overlaps
+  const track = getTrackById(dragState.trackId);
+  if (track) {
+    for (const otherClip of track.clips) {
+      if (otherClip.id === clip.id) continue;
+
+      const clipEnd = newStartTime + clip.duration;
+      const otherEnd = otherClip.startTime + otherClip.duration;
+
+      // Check if clips would overlap
+      if (!(clipEnd <= otherClip.startTime || newStartTime >= otherEnd)) {
+        // Overlap detected, don't allow this position
+        return;
+      }
+    }
+  }
+
+  // Update clip position
+  clip.startTime = newStartTime;
+
+  // Update visual position
+  const clipEl = document.querySelector(`[data-clip-id="${clip.id}"]`) as HTMLElement;
+  if (clipEl) {
+    clipEl.style.left = `${newStartTime * pixelsPerSecond}px`;
+  }
+}
+
+function endDrag() {
+  if (!dragState) return;
+
+  // Remove dragging class
+  const clipEl = document.querySelector(`[data-clip-id="${dragState.clipId}"]`) as HTMLElement;
+  if (clipEl) {
+    clipEl.classList.remove('dragging');
+  }
+
+  // Re-sort clips in track
+  const track = getTrackById(dragState.trackId);
+  if (track) {
+    track.clips.sort((a, b) => a.startTime - b.startTime);
+  }
+
+  dragState = null;
+
+  // Re-render timeline to ensure consistency
+  renderTimeline();
+}
+
+// ============================================================================
 // Timeline Rendering Functions
 // ============================================================================
 
@@ -355,6 +472,12 @@ function renderClip(clip: Clip): HTMLElement {
   clipInfo.appendChild(clipName);
   clipInfo.appendChild(clipDuration);
   clipEl.appendChild(clipInfo);
+
+  // Add drag event listeners
+  clipEl.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    startDrag(clip.id, clip.trackId, e.clientX);
+  });
 
   return clipEl;
 }
@@ -972,4 +1095,17 @@ window.addEventListener("DOMContentLoaded", () => {
   // Timeline zoom controls
   zoomInBtn?.addEventListener('click', zoomIn);
   zoomOutBtn?.addEventListener('click', zoomOut);
+
+  // Global mouse event listeners for drag
+  document.addEventListener('mousemove', (e) => {
+    if (dragState && dragState.isDragging) {
+      updateDrag(e.clientX);
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (dragState && dragState.isDragging) {
+      endDrag();
+    }
+  });
 });
