@@ -932,6 +932,45 @@ h1 {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
+.timeline-clip-trim-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  background: rgba(255, 255, 255, 0.3);
+  cursor: ew-resize;
+  z-index: 60;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.timeline-clip:hover .timeline-clip-trim-handle {
+  opacity: 1;
+}
+
+.timeline-clip-trim-handle:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.timeline-clip-trim-handle.trim-left {
+  left: 0;
+  border-right: 2px solid rgba(255, 255, 255, 0.8);
+}
+
+.timeline-clip-trim-handle.trim-right {
+  right: 0;
+  border-left: 2px solid rgba(255, 255, 255, 0.8);
+}
+
+.timeline-clip.trimming {
+  opacity: 0.8;
+}
+
+.timeline-clip.trimming .timeline-clip-trim-handle {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.7);
+}
+
 .timeline-playhead {
   position: absolute;
   top: 0;

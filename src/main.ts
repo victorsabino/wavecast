@@ -78,6 +78,19 @@ interface DragState {
 let dragState: DragState | null = null;
 const snapThreshold = 0.5; // Snap to 0.5 second intervals
 
+// Trim state
+interface TrimState {
+  clipId: string;
+  edge: 'left' | 'right';
+  startX: number;
+  originalStartTime: number;
+  originalDuration: number;
+  originalTrimStart: number;
+  originalTrimEnd: number;
+  isTrimming: boolean;
+}
+let trimState: TrimState | null = null;
+
 // Playback state
 let isPlaying = false;
 let playbackStartTime = 0;
@@ -410,6 +423,113 @@ function endDrag() {
 }
 
 // ============================================================================
+// Trim Functions
+// ============================================================================
+
+function startTrim(clipId: string, edge: 'left' | 'right', mouseX: number) {
+  const clip = _getClipById(clipId);
+  if (!clip) return;
+
+  trimState = {
+    clipId,
+    edge,
+    startX: mouseX,
+    originalStartTime: clip.startTime,
+    originalDuration: clip.duration,
+    originalTrimStart: clip.trimStart,
+    originalTrimEnd: clip.trimEnd,
+    isTrimming: true
+  };
+
+  // Add trimming class
+  const clipEl = document.querySelector(`[data-clip-id="${clipId}"]`) as HTMLElement;
+  if (clipEl) {
+    clipEl.classList.add('trimming');
+  }
+}
+
+function updateTrim(mouseX: number) {
+  if (!trimState || !trimState.isTrimming) return;
+
+  const clip = _getClipById(trimState.clipId);
+  if (!clip) return;
+
+  const deltaX = mouseX - trimState.startX;
+  const deltaTime = deltaX / pixelsPerSecond;
+
+  const minDuration = 0.1; // Minimum clip duration
+
+  if (trimState.edge === 'left') {
+    // Trim from start
+    let newTrimStart = trimState.originalTrimStart + deltaTime;
+    let newStartTime = trimState.originalStartTime + deltaTime;
+    let newDuration = trimState.originalDuration - deltaTime;
+
+    // Constraints
+    if (newTrimStart < 0) {
+      newTrimStart = 0;
+      newStartTime = trimState.originalStartTime - trimState.originalTrimStart;
+      newDuration = trimState.originalDuration + trimState.originalTrimStart;
+    }
+    if (newDuration < minDuration) {
+      newDuration = minDuration;
+      newTrimStart = trimState.originalTrimStart + (trimState.originalDuration - minDuration);
+      newStartTime = trimState.originalStartTime + (trimState.originalDuration - minDuration);
+    }
+    if (newTrimStart + newDuration + trimState.originalTrimEnd > clip.sourceDuration) {
+      return; // Can't trim beyond source
+    }
+
+    clip.trimStart = newTrimStart;
+    clip.startTime = newStartTime;
+    clip.duration = newDuration;
+
+  } else {
+    // Trim from end
+    let newDuration = trimState.originalDuration + deltaTime;
+    let newTrimEnd = trimState.originalTrimEnd - deltaTime;
+
+    // Constraints
+    if (newTrimEnd < 0) {
+      newTrimEnd = 0;
+      newDuration = clip.sourceDuration - trimState.originalTrimStart;
+    }
+    if (newDuration < minDuration) {
+      newDuration = minDuration;
+      newTrimEnd = trimState.originalTrimEnd + (trimState.originalDuration - minDuration);
+    }
+    if (trimState.originalTrimStart + newDuration + newTrimEnd > clip.sourceDuration) {
+      return; // Can't trim beyond source
+    }
+
+    clip.duration = newDuration;
+    clip.trimEnd = newTrimEnd;
+  }
+
+  // Update visual
+  const clipEl = document.querySelector(`[data-clip-id="${clip.id}"]`) as HTMLElement;
+  if (clipEl) {
+    clipEl.style.left = `${clip.startTime * pixelsPerSecond}px`;
+    clipEl.style.width = `${clip.duration * pixelsPerSecond}px`;
+  }
+}
+
+function endTrim() {
+  if (!trimState) return;
+
+  // Remove trimming class
+  const clipEl = document.querySelector(`[data-clip-id="${trimState.clipId}"]`) as HTMLElement;
+  if (clipEl) {
+    clipEl.classList.remove('trimming');
+  }
+
+  trimState = null;
+
+  // Re-render timeline to update waveforms
+  renderTimeline();
+}
+
+// ============================================================================
 // Playback Functions
 // ============================================================================
 
@@ -704,8 +824,31 @@ function renderClip(clip: Clip): HTMLElement {
   clipInfo.appendChild(clipDuration);
   clipEl.appendChild(clipInfo);
 
-  // Add drag event listeners
+  // Add trim handles
+  const leftHandle = document.createElement('div');
+  leftHandle.className = 'timeline-clip-trim-handle trim-left';
+  leftHandle.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    startTrim(clip.id, 'left', e.clientX);
+  });
+  clipEl.appendChild(leftHandle);
+
+  const rightHandle = document.createElement('div');
+  rightHandle.className = 'timeline-clip-trim-handle trim-right';
+  rightHandle.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    startTrim(clip.id, 'right', e.clientX);
+  });
+  clipEl.appendChild(rightHandle);
+
+  // Add drag event listeners (on clip body, not handles)
   clipEl.addEventListener('mousedown', (e) => {
+    // Don't start drag if clicking on a handle
+    if ((e.target as HTMLElement).classList.contains('timeline-clip-trim-handle')) {
+      return;
+    }
     e.preventDefault();
     startDrag(clip.id, clip.trackId, e.clientX);
   });
@@ -1340,16 +1483,20 @@ window.addEventListener("DOMContentLoaded", () => {
   zoomInBtn?.addEventListener('click', zoomIn);
   zoomOutBtn?.addEventListener('click', zoomOut);
 
-  // Global mouse event listeners for drag
+  // Global mouse event listeners for drag and trim
   document.addEventListener('mousemove', (e) => {
     if (dragState && dragState.isDragging) {
       updateDrag(e.clientX);
+    } else if (trimState && trimState.isTrimming) {
+      updateTrim(e.clientX);
     }
   });
 
   document.addEventListener('mouseup', () => {
     if (dragState && dragState.isDragging) {
       endDrag();
+    } else if (trimState && trimState.isTrimming) {
+      endTrim();
     }
   });
 
