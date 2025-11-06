@@ -8,6 +8,140 @@ struct VimeoUploadResponse {
     link: String,
 }
 
+// Timeline-based structures
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct TimelineClip {
+    source_file: String,
+    start_time: f64,
+    duration: f64,
+    trim_start: f64,
+    trim_end: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct TimelineTrack {
+    clips: Vec<TimelineClip>,
+    volume: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct TimelineData {
+    tracks: Vec<TimelineTrack>,
+}
+
+fn generate_filter_complex(clips: &[TimelineClip], main_volume: f64) -> String {
+    if clips.is_empty() {
+        return String::new();
+    }
+
+    let mut filter_parts = Vec::new();
+
+    for (i, clip) in clips.iter().enumerate() {
+        // Create filter for each clip: trim, adjust timing, delay to position
+        let trim_end = clip.duration + clip.trim_start;
+        let delay_ms = (clip.start_time * 1000.0) as i64;
+
+        filter_parts.push(format!(
+            "[{}:a]atrim=start={}:end={},asetpts=PTS-STARTPTS,adelay={}|{}[a{}]",
+            i, clip.trim_start, trim_end, delay_ms, delay_ms, i
+        ));
+    }
+
+    // Mix all audio streams
+    let stream_labels: Vec<String> = (0..clips.len()).map(|i| format!("[a{}]", i)).collect();
+    filter_parts.push(format!(
+        "{}amix=inputs={}:duration=longest,volume={}",
+        stream_labels.join(""),
+        clips.len(),
+        main_volume
+    ));
+
+    filter_parts.join(";")
+}
+
+#[tauri::command]
+fn convert_timeline_to_video(
+    image_path: String,
+    timeline: TimelineData,
+    background_style: String,
+    bg_music_path: Option<String>,
+    bg_music_volume: i32,
+    main_audio_volume: i32,
+) -> Result<String, String> {
+    // Download FFmpeg if not present
+    auto_download().map_err(|e| format!("Failed to download FFmpeg: {}", e))?;
+
+    // Get all clips from all audio tracks
+    let mut all_clips: Vec<TimelineClip> = Vec::new();
+    for track in &timeline.tracks {
+        all_clips.extend(track.clips.clone());
+    }
+
+    if all_clips.is_empty() {
+        return Err("No audio clips in timeline".to_string());
+    }
+
+    // Create output path
+    let first_clip = &all_clips[0];
+    let audio_dir = PathBuf::from(&first_clip.source_file)
+        .parent()
+        .ok_or("Could not determine audio directory")?
+        .to_path_buf();
+
+    let output_path = audio_dir.join("output.mp4");
+
+    // Determine filter based on background style
+    let video_filter = match background_style.as_str() {
+        "cover" => "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720",
+        "contain" => "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+        "repeat" => "tile=2x2",
+        "center" => "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+        _ => "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720",
+    };
+
+    let main_volume = main_audio_volume as f64 / 100.0;
+
+    // Build FFmpeg command with all input files
+    let mut cmd = FfmpegCommand::new();
+    cmd.input(&image_path);
+
+    // Add each unique source file as input
+    let mut unique_sources: Vec<String> = Vec::new();
+    for clip in &all_clips {
+        if !unique_sources.contains(&clip.source_file) {
+            unique_sources.push(clip.source_file.clone());
+        }
+    }
+
+    for source in &unique_sources {
+        cmd.input(source);
+    }
+
+    // Generate audio filter complex
+    let audio_filter = generate_filter_complex(&all_clips, main_volume);
+
+    cmd.args(&[
+        "-loop", "1",
+        "-vf", video_filter,
+        "-filter_complex", &audio_filter,
+        "-c:v", "libx264",
+        "-tune", "stillimage",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-shortest"
+    ])
+    .overwrite()
+    .output(output_path.to_str().unwrap());
+
+    cmd.spawn()
+        .map_err(|e| format!("Failed to spawn FFmpeg: {}", e))?
+        .wait()
+        .map_err(|e| format!("Failed to execute FFmpeg: {}", e))?;
+
+    Ok(output_path.to_str().unwrap().to_string())
+}
+
 #[tauri::command]
 fn convert_to_video(
     image_path: String,
@@ -223,7 +357,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![convert_to_video, upload_to_vimeo])
+        .invoke_handler(tauri::generate_handler![convert_to_video, convert_timeline_to_video, upload_to_vimeo])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

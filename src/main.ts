@@ -1356,22 +1356,45 @@ async function convertToVideo() {
   }
 
   try {
-    // For now, continue using legacy audio paths for backward compatibility
-    // In Phase 5, we'll switch to timeline-based export with FFmpeg filter_complex
-    const audioPaths = audioFiles.length > 0
-      ? audioFiles.map(f => f.path)
-      : timeline.tracks
-          .filter(t => t.type === 'audio')
-          .flatMap(t => t.clips.map(c => c.sourceFile));
+    let result: string;
 
-    const result = await invoke<string>('convert_to_video', {
-      imagePath: selectedImage,
-      audioPaths: audioPaths,
-      backgroundStyle: backgroundStyle,
-      bgMusicPath: bgMusicFile,
-      bgMusicVolume: bgMusicVolume,
-      mainAudioVolume: mainAudioVolume
-    });
+    // Use timeline-based export if we have timeline clips
+    if (hasTimelineAudio) {
+      // Prepare timeline data for Rust
+      const timelineData = {
+        tracks: timeline.tracks.map(track => ({
+          clips: track.clips.map(clip => ({
+            source_file: clip.sourceFile,
+            start_time: clip.startTime,
+            duration: clip.duration,
+            trim_start: clip.trimStart,
+            trim_end: clip.trimEnd
+          })),
+          volume: track.volume / 100.0
+        }))
+      };
+
+      result = await invoke<string>('convert_timeline_to_video', {
+        imagePath: selectedImage,
+        timeline: timelineData,
+        backgroundStyle: backgroundStyle,
+        bgMusicPath: bgMusicFile,
+        bgMusicVolume: bgMusicVolume,
+        mainAudioVolume: mainAudioVolume
+      });
+    } else {
+      // Fallback to legacy mode
+      const audioPaths = audioFiles.map(f => f.path);
+
+      result = await invoke<string>('convert_to_video', {
+        imagePath: selectedImage,
+        audioPaths: audioPaths,
+        backgroundStyle: backgroundStyle,
+        bgMusicPath: bgMusicFile,
+        bgMusicVolume: bgMusicVolume,
+        mainAudioVolume: mainAudioVolume
+      });
+    }
 
     lastGeneratedVideo = result;
 
