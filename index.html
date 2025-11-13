@@ -10,8 +10,17 @@
 
   <body>
     <main class="container">
-      <h1>MP3 to MP4 Converter</h1>
-      <p class="subtitle">Convert your audio files to video with a background image</p>
+      <div class="video-metadata-section">
+        <h3>Video Details</h3>
+        <div class="form-group">
+          <label for="video-title">Video Title</label>
+          <input type="text" id="video-title" placeholder="My Awesome Video" value="Converted Video">
+        </div>
+        <div class="form-group">
+          <label for="video-description">Description (Optional)</label>
+          <textarea id="video-description" rows="3" placeholder="Enter video description..."></textarea>
+        </div>
+      </div>
 
       <div class="upload-section">
         <div class="upload-card">
@@ -103,6 +112,15 @@
                 </svg>
               </button>
               <span id="timeline-time" class="timeline-time">00:00.000</span>
+              <div class="timeline-divider"></div>
+              <button id="split-clip-btn" class="timeline-control-btn" title="Split Clip at Playhead (S)" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <polyline points="9 8 12 5 15 8"/>
+                  <polyline points="9 16 12 19 15 16"/>
+                </svg>
+              </button>
+              <div class="timeline-divider"></div>
               <div class="timeline-zoom-controls">
                 <button id="zoom-out" class="timeline-control-btn" title="Zoom Out (-)">-</button>
                 <span id="zoom-level">100%</span>
@@ -123,18 +141,6 @@
           </div>
         </div>
 
-      </div>
-
-      <div class="video-metadata-section">
-        <h3>Video Details</h3>
-        <div class="form-group">
-          <label for="video-title">Video Title</label>
-          <input type="text" id="video-title" placeholder="My Awesome Video" value="Converted Video">
-        </div>
-        <div class="form-group">
-          <label for="video-description">Description (Optional)</label>
-          <textarea id="video-description" rows="3" placeholder="Enter video description..."></textarea>
-        </div>
       </div>
 
       <div class="actions">

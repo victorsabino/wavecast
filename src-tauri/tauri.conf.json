@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "--name",
+  "productName": "Vimeo MP3 Uploader",
   "version": "0.1.0",
-  "identifier": "com.sabino.--name",
+  "identifier": "com.sabino.vimeo-mp3-uploader",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,9 +13,11 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "--name",
-        "width": 800,
-        "height": 600
+        "title": "Vimeo MP3 Uploader",
+        "width": 1200,
+        "height": 900,
+        "decorations": true,
+        "transparent": false
       }
     ],
     "security": {
