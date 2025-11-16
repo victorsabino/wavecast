@@ -1,7 +1,9 @@
 {
-  "name": "sm-editor",
+  "name": "wavecast",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "Transform audio into video, at scale. Bulk audio-to-video converter for content creators.",
+  "author": "Wavecast",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,6 +19,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "sharp": "^0.34.5",
     "typescript": "~5.6.2",
     "vite": "^6.0.3"
   }

@@ -30,6 +30,13 @@ struct TimelineClip {
     trim_end: f64,
 }
 
+// Internal structure with track volume
+#[derive(Debug, Clone)]
+struct ClipWithVolume {
+    clip: TimelineClip,
+    track_volume: f64,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct TimelineTrack {
     clips: Vec<TimelineClip>,
@@ -97,31 +104,40 @@ fn parse_time_to_seconds(time_str: &str) -> f64 {
     }
 }
 
-fn generate_filter_complex(clips: &[TimelineClip], unique_sources: &[String], main_volume: f64) -> String {
+fn generate_filter_complex(clips: &[ClipWithVolume], unique_sources: &[String], main_volume: f64, has_bg_music: bool) -> String {
     if clips.is_empty() {
         return String::new();
     }
 
     let mut filter_parts = Vec::new();
 
-    for (i, clip) in clips.iter().enumerate() {
-        // Find the input index for this clip's source file (offset by 1 for the image input)
-        let input_idx = unique_sources.iter().position(|s| s == &clip.source_file).unwrap() + 1;
+    for (i, clip_with_vol) in clips.iter().enumerate() {
+        let clip = &clip_with_vol.clip;
+        let track_vol = clip_with_vol.track_volume;
 
-        // Create filter for each clip: trim, adjust timing, delay to position
+        // Find the input index for this clip's source file
+        // Offset by 1 for the image input (always at index 0)
+        // If background music exists, offset by an additional 1 (bg music at index 1)
+        let base_offset = if has_bg_music { 2 } else { 1 };
+        let input_idx = unique_sources.iter().position(|s| s == &clip.source_file).unwrap() + base_offset;
+
+        println!("  Clip {}: source '{}' -> FFmpeg input index {}, track volume: {}", i, clip.source_file, input_idx, track_vol);
+
+        // Create filter for each clip: trim, adjust timing, delay to position, apply track volume
         let trim_end = clip.duration + clip.trim_start;
         let delay_ms = (clip.start_time * 1000.0) as i64;
 
+        // Apply track volume to each clip individually
         filter_parts.push(format!(
-            "[{}:a]atrim=start={}:end={},asetpts=PTS-STARTPTS,adelay={}|{}[a{}]",
-            input_idx, clip.trim_start, trim_end, delay_ms, delay_ms, i
+            "[{}:a]atrim=start={}:end={},asetpts=PTS-STARTPTS,volume={},adelay={}|{}[a{}]",
+            input_idx, clip.trim_start, trim_end, track_vol, delay_ms, delay_ms, i
         ));
     }
 
     // Mix all audio streams
     let stream_labels: Vec<String> = (0..clips.len()).map(|i| format!("[a{}]", i)).collect();
     filter_parts.push(format!(
-        "{}amix=inputs={}:duration=longest,volume={}",
+        "{}amix=inputs={}:duration=longest,volume={}[aout]",
         stream_labels.join(""),
         clips.len(),
         main_volume
@@ -179,8 +195,8 @@ fn convert_timeline_to_video(
     image_path: String,
     timeline: TimelineData,
     background_style: String,
-    _bg_music_path: Option<String>,
-    _bg_music_volume: i32,
+    bg_music_path: Option<String>,
+    bg_music_volume: i32,
     main_audio_volume: i32,
 ) -> Result<String, String> {
     println!("=== Starting timeline-based video conversion ===");
@@ -188,6 +204,8 @@ fn convert_timeline_to_video(
     println!("Timeline tracks: {}", timeline.tracks.len());
     println!("Background style: {}", background_style);
     println!("Main audio volume: {}", main_audio_volume);
+    println!("BG music path: {:?}", bg_music_path);
+    println!("BG music volume: {}", bg_music_volume);
 
     // Download FFmpeg if not present
     println!("Checking for FFmpeg...");
@@ -198,11 +216,16 @@ fn convert_timeline_to_video(
     })?;
     println!("FFmpeg ready");
 
-    // Get all clips from all audio tracks
-    let mut all_clips: Vec<TimelineClip> = Vec::new();
+    // Get all clips from all audio tracks with their track volumes
+    let mut all_clips: Vec<ClipWithVolume> = Vec::new();
     for (i, track) in timeline.tracks.iter().enumerate() {
         println!("Track {}: {} clips, volume: {}", i, track.clips.len(), track.volume);
-        all_clips.extend(track.clips.clone());
+        for clip in &track.clips {
+            all_clips.push(ClipWithVolume {
+                clip: clip.clone(),
+                track_volume: track.volume,
+            });
+        }
     }
 
     if all_clips.is_empty() {
@@ -213,9 +236,9 @@ fn convert_timeline_to_video(
     println!("Total clips to process: {}", all_clips.len());
 
     // Create output path
-    let first_clip = &all_clips[0];
-    println!("First clip source: {}", first_clip.source_file);
-    let audio_dir = PathBuf::from(&first_clip.source_file)
+    let first_clip_with_vol = &all_clips[0];
+    println!("First clip source: {}", first_clip_with_vol.clip.source_file);
+    let audio_dir = PathBuf::from(&first_clip_with_vol.clip.source_file)
         .parent()
         .ok_or_else(|| {
             println!("ERROR: Could not determine audio directory");
@@ -245,11 +268,18 @@ fn convert_timeline_to_video(
     cmd.args(&["-loop", "1"]);
     cmd.input(&image_path);
 
+    // Add background music as input if provided
+    let has_bg_music = bg_music_path.is_some();
+    if let Some(ref music_path) = bg_music_path {
+        println!("Adding background music input: {}", music_path);
+        cmd.input(music_path);
+    }
+
     // Add each unique source file as input
     let mut unique_sources: Vec<String> = Vec::new();
-    for clip in &all_clips {
-        if !unique_sources.contains(&clip.source_file) {
-            unique_sources.push(clip.source_file.clone());
+    for clip_with_vol in &all_clips {
+        if !unique_sources.contains(&clip_with_vol.clip.source_file) {
+            unique_sources.push(clip_with_vol.clip.source_file.clone());
         }
     }
 
@@ -259,12 +289,34 @@ fn convert_timeline_to_video(
 
     // Generate audio filter complex
     println!("Generating audio filter complex...");
-    let audio_filter = generate_filter_complex(&all_clips, &unique_sources, main_volume);
-    println!("Audio filter complex: {}", audio_filter);
+    let mut audio_filter = generate_filter_complex(&all_clips, &unique_sources, main_volume, has_bg_music);
+
+    // If background music is provided, mix it with the main audio
+    if has_bg_music {
+        let bg_volume = bg_music_volume as f64 / 100.0;
+        println!("Adding background music mixing (volume: {})", bg_volume);
+
+        // The filter complex from generate_filter_complex outputs to [aout]
+        // We need to mix it with the background music (input 1)
+        // Input 0: image
+        // Input 1: background music (if provided)
+        // Input 2+: audio clips
+
+        audio_filter = format!(
+            "{};[1:a]aloop=loop=-1:size=2e+09,volume={}[bgmusic];[aout][bgmusic]amix=inputs=2:duration=first:dropout_transition=2[final]",
+            audio_filter, bg_volume
+        );
+    }
+
+    println!("Final audio filter complex: {}", audio_filter);
+
+    let audio_output_label = if has_bg_music { "[final]" } else { "[aout]" };
 
     cmd.args(&[
         "-vf", video_filter,
         "-filter_complex", &audio_filter,
+        "-map", "0:v",
+        "-map", audio_output_label,
         "-c:v", "libx264",
         "-tune", "stillimage",
         "-c:a", "aac",
@@ -275,6 +327,20 @@ fn convert_timeline_to_video(
     ])
     .overwrite()
     .output(output_path.to_str().unwrap());
+
+    // Log the complete FFmpeg command for debugging
+    println!("=== FFmpeg Command Debug ===");
+    println!("Image path: {}", image_path);
+    if has_bg_music {
+        if let Some(ref music_path) = bg_music_path {
+            println!("Music path: {}", music_path);
+        }
+    }
+    println!("Unique audio sources: {:?}", unique_sources);
+    println!("Video filter: {}", video_filter);
+    println!("Audio filter: {}", audio_filter);
+    println!("Output path: {}", output_path.display());
+    println!("===========================");
 
     // Spawn process and capture events
     println!("Spawning FFmpeg process...");
@@ -288,7 +354,7 @@ fn convert_timeline_to_video(
 
     // Calculate total duration for progress percentage
     let total_duration: f64 = all_clips.iter()
-        .map(|clip| clip.start_time + clip.duration)
+        .map(|clip_with_vol| clip_with_vol.clip.start_time + clip_with_vol.clip.duration)
         .fold(0.0, f64::max);
     println!("Total duration: {:.2}s", total_duration);
 
@@ -342,6 +408,13 @@ fn convert_timeline_to_video(
     if !result.success() {
         let err_msg = "FFmpeg encoding failed".to_string();
         println!("ERROR: {}", err_msg);
+        println!("ERROR CONTEXT:");
+        println!("  - Image: {}", image_path);
+        println!("  - Audio sources: {:?}", unique_sources);
+        println!("  - Video filter: {}", video_filter);
+        println!("  - Audio filter: {}", audio_filter);
+        println!("  - Has BG music: {}", has_bg_music);
+        println!("  - Exit code: {:?}", result.code());
         return Err(err_msg);
     }
 

@@ -1,119 +1,265 @@
-# MP3 to MP4 Converter
+<div align="center">
 
-A beautiful cross-platform desktop application built with Tauri that converts audio files (MP3) to video files (MP4) with a static background image.
+![Wavecast Logo](./assets/logo.png)
 
-## Features
+# Wavecast
 
-- **Select Background Image**: Choose any image (JPG, PNG) as your video background
-- **Multiple Audio Files**: Select one or multiple MP3 files to combine into a single video
-- **Background Styles**: Choose how the image should be displayed
-  - **Fill (Cover)**: Scale and crop the image to fill the entire frame
-  - **Fit (Contain)**: Scale the image to fit within the frame with padding
-  - **Repeat**: Tile the image in a 2x2 pattern
-  - **Center**: Center the image with padding
-- **Playlist Management**: Add multiple audio files and remove them as needed
-- **Progress Tracking**: Visual progress indicator during video conversion
-- **Modern UI**: Clean, gradient-based interface with dark mode support
+**Transform audio into video, at scale**
 
-## Prerequisites
+[![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri-24C8D8?style=for-the-badge&logo=tauri)](https://tauri.app)
+[![Powered by FFmpeg](https://img.shields.io/badge/Powered%20by-FFmpeg-007808?style=for-the-badge&logo=ffmpeg)](https://ffmpeg.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 
-### FFmpeg Installation
+**Bulk audio-to-video converter for content creators, podcasters, and musicians**
 
-This application requires FFmpeg to be installed on your system.
+</div>
 
-#### macOS
+---
+
+## 🎯 What is Wavecast?
+
+Wavecast is a powerful desktop application that transforms your audio files into professional videos with customizable backgrounds and music. Perfect for creating social media content, podcast clips, music visualizers, and more.
+
+### Why Wavecast?
+
+- ⚡ **Batch Processing**: Convert hundreds of audio files to videos in one go
+- 🎨 **Custom Backgrounds**: Use images or solid colors
+- 🎵 **Background Music**: Add music tracks with random assignment
+- ✂️ **Timeline Editor**: Trim, arrange, and edit your audio clips visually
+- 📊 **Bulk Metadata**: Edit titles and descriptions for all videos at once
+- 🎬 **Export Ready**: Generate MP4, MOV, or WebM videos optimized for social media
+
+---
+
+## ✨ Features
+
+### 🎬 Bulk Audio Processing
+- Upload multiple audio files (MP3, WAV, M4A, OGG)
+- Process up to 500 files simultaneously
+- Automatic sequential arrangement on timeline
+- Individual file deletion and management
+
+### 🎨 Background Options
+- **Image Backgrounds**: Upload your own images
+  - Fill (Cover) - Scale and crop to fill the frame
+  - Fit (Contain) - Scale to fit with padding
+  - Repeat - Tile the image in a 2x2 pattern
+  - Center - Center the image with padding
+- **Solid Color Backgrounds**: Choose from presets or custom colors
+
+### 🎵 Music Pool
+- **Random Mode**: Upload multiple tracks, each video gets a random one
+- **Sequential Mode**: Specific music for each video
+- Adjustable volume mixing (main audio + background music)
+- Loop background music automatically
+
+### ✂️ Timeline Editor
+- Visual waveform display
+- Drag and drop clip arrangement
+- Trim clips with precision handles
+- Split clips at playhead
+- Zoom controls for detailed editing
+- Keyboard shortcuts for efficiency
+- Copy/paste clips
+
+### 📝 Metadata Management
+- Bulk title and description editing
+- Auto-fill from filenames
+- Template system for consistent metadata
+- Preview before export
+
+### 🚀 Export & Publishing
+- Real-time progress tracking
+- Multiple format support (MP4, MOV, WebM)
+- Quality presets (High, Medium, Low)
+- Batch preview of rendered videos
+- Direct upload to Vimeo
+
+---
+
+## 📥 Installation
+
+### Prerequisites
+- macOS 10.13+ / Windows 10+ / Linux
+- 4GB RAM minimum (8GB recommended for large batches)
+- 1GB free disk space
+- **FFmpeg** (auto-downloaded on first use)
+
+### Download
+
+**Coming Soon**: Pre-built binaries for all platforms
+
+### Build from Source
+
 ```bash
-brew install ffmpeg
-```
+# Clone the repository
+git clone https://github.com/yourusername/wavecast.git
+cd wavecast
 
-#### Windows
-Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH
-
-#### Linux
-```bash
-sudo apt install ffmpeg  # Debian/Ubuntu
-sudo dnf install ffmpeg  # Fedora
-```
-
-Verify installation:
-```bash
-ffmpeg -version
-```
-
-## Development
-
-### Install Dependencies
-```bash
+# Install dependencies
 npm install
-```
 
-### Run in Development Mode
-```bash
+# Run in development mode
 npm run tauri dev
-```
 
-This will:
-1. Start the Vite development server
-2. Compile the Rust backend
-3. Launch the desktop application
-
-### Build for Production
-```bash
+# Build for production
 npm run tauri build
 ```
 
-The compiled application will be in `src-tauri/target/release/`.
+---
 
-## How It Works
+## 🎮 Usage
 
-### Frontend (TypeScript + HTML/CSS)
-- File selection using Tauri's dialog plugin
-- Playlist management for multiple audio files
-- Modern, responsive UI with animations
-- Dark mode support
+### Quick Start (5 Steps)
 
-### Backend (Rust)
-- File system operations
-- FFmpeg integration for video conversion
-- Audio concatenation for multiple files
-- Video encoding with configurable background styles
+1. **Upload Audio Files**
+   - Click "Browse Audio Files" or drag & drop
+   - Supports MP3, WAV, M4A, OGG
 
-## Tech Stack
+2. **Add Music Pool** (Optional)
+   - Choose "Random Mode" for variety
+   - Upload multiple background tracks
 
-- **Tauri**: Cross-platform desktop framework
-- **TypeScript**: Type-safe frontend development
-- **Vite**: Fast frontend build tool
-- **Rust**: High-performance backend
-- **FFmpeg**: Audio/video processing
+3. **Set Background**
+   - Upload an image OR choose a solid color
+   - Select background style
 
-## Output
+4. **Edit Timeline** (Optional)
+   - Arrange clips by dragging
+   - Trim unwanted parts
+   - Adjust volumes
 
-- Videos are saved as `output.mp4` in the same directory as your audio files
-- Resolution: 1280x720 (720p)
-- Video codec: H.264
-- Audio codec: AAC (192kbps)
-- Format: MP4
+5. **Export**
+   - Review metadata
+   - Click "Create All Videos"
+   - Wait for batch processing to complete
 
-## Usage
+### Keyboard Shortcuts
 
-1. **Launch the application**
-2. **Select a background image** by clicking the "Background Image" area
-3. **Choose your background style** from the dropdown (Fill, Fit, Repeat, Center)
-4. **Select audio file(s)** by clicking the "Audio Files" area
-   - You can select multiple MP3 files at once
-   - They will be combined in the order selected
-5. **Remove unwanted files** from the playlist using the X button
-6. **Click "Convert to MP4"** to start the conversion
-7. **Wait for the conversion** to complete
-8. **Find your video** in the same folder as your audio files
+| Shortcut | Action |
+|----------|--------|
+| `Space` | Play/Pause |
+| `S` | Split clip at playhead |
+| `Delete` | Delete selected clip |
+| `Cmd/Ctrl + C` | Copy clip |
+| `Cmd/Ctrl + V` | Paste clip |
+| `+` / `-` | Zoom in/out |
 
-## Notes
+---
 
-- Multiple audio files are automatically concatenated in the order they appear in the playlist
-- The video duration matches the total audio duration
-- Images are processed according to the selected background style
-- The app checks for FFmpeg on startup and will show an error if not found
+## 🛠️ Tech Stack
 
-## Recommended IDE Setup
+### Frontend
+- **Framework**: TypeScript + Vite
+- **UI**: Custom CSS with modern design system
+- **Waveforms**: WaveSurfer.js
+- **State Management**: Vanilla TypeScript
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+### Backend
+- **Runtime**: Tauri (Rust)
+- **Video Processing**: FFmpeg
+- **File Handling**: Rust std::fs
+- **Image Processing**: image-rs
+
+### Build & Deploy
+- **Build Tool**: Vite
+- **Desktop Framework**: Tauri
+- **Package Manager**: npm
+
+---
+
+## 🏗️ Project Structure
+
+```
+wavecast/
+├── src/                    # Frontend source
+│   ├── main.ts            # Main application logic
+│   ├── styles-new.css     # Application styles
+│   └── index.html         # HTML template
+├── src-tauri/             # Rust backend
+│   ├── src/
+│   │   ├── main.rs       # Tauri entry point
+│   │   └── lib.rs        # Core functionality
+│   ├── Cargo.toml        # Rust dependencies
+│   └── tauri.conf.json   # Tauri configuration
+├── assets/                # Logos and images
+│   ├── logo.png          # Main logo
+│   ├── icon.png          # App icon
+│   └── logo-full.png     # Full logo with tagline
+└── README.md             # This file
+```
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+### Development Setup
+
+```bash
+# Install dependencies
+npm install
+
+# Run development server
+npm run dev
+
+# Run Tauri in development mode
+npm run tauri dev
+
+# Build for production
+npm run tauri build
+```
+
+---
+
+## 📋 Roadmap
+
+- [x] Bulk audio to video conversion
+- [x] Timeline editor with waveforms
+- [x] Random music pool
+- [x] Solid color backgrounds
+- [x] Bulk metadata editing
+- [x] Vimeo integration
+- [ ] YouTube integration
+- [ ] Google Drive integration
+- [ ] Video templates
+- [ ] Audio effects (EQ, compression)
+- [ ] Text overlays
+- [ ] Animated backgrounds
+- [ ] Cloud rendering
+- [ ] Collaboration features
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- [Tauri](https://tauri.app) - Desktop app framework
+- [FFmpeg](https://ffmpeg.org) - Video processing
+- [WaveSurfer.js](https://wavesurfer-js.org) - Waveform visualizations
+- [Vite](https://vitejs.dev) - Build tool
+
+---
+
+<div align="center">
+
+**Made with ❤️ for content creators everywhere**
+
+⭐ Star this repo if you find it useful!
+
+![Wavecast Icon](./assets/icon.png)
+
+</div>

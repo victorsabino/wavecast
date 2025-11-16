@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    sm_editor_lib::run()
+    wavecast_lib::run()
 }

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Vimeo MP3 Uploader",
-  "version": "0.1.0",
-  "identifier": "com.sabino.vimeo-mp3-uploader",
+  "productName": "Wavecast",
+  "version": "1.0.0",
+  "identifier": "com.wavecast.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,11 +13,13 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Vimeo MP3 Uploader",
-        "width": 1200,
-        "height": 900,
+        "title": "Wavecast",
+        "width": 1400,
+        "height": 1000,
         "decorations": true,
-        "transparent": false
+        "transparent": false,
+        "minWidth": 1200,
+        "minHeight": 800
       }
     ],
     "security": {
