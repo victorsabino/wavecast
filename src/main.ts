@@ -41,12 +41,32 @@ interface AudioFile {
   duration?: number;
 }
 
+// Video metadata for bulk export
+interface VideoMetadata {
+  clipId: string;
+  audioFileName: string;
+  musicTrackName: string;
+  title: string;
+  description: string;
+}
+
+interface ProcessedVideo {
+  title: string;
+  videoPath: string;
+  metadata: VideoMetadata;
+  status: 'success' | 'failed';
+}
+
+let videoMetadataList: VideoMetadata[] = [];
+let processedVideos: ProcessedVideo[] = [];
+
 let currentAudio: HTMLAudioElement | null = null;
 let currentPlayingIndex: number | null = null;
 
 // Timeline audio playback
 let timelineAudioElements: Map<string, HTMLAudioElement> = new Map();
 let activeTimelineClips: Set<string> = new Set();
+let autoplayBlocked = false; // Track if autoplay was blocked
 
 // Timeline state
 let timeline: Timeline = {
@@ -228,6 +248,72 @@ function showToast(message: string, type: 'error' | 'warning' | 'success' | 'inf
   }, duration);
 }
 
+// Show a loading toast that can be updated later
+function showLoadingToast(message: string): HTMLElement {
+  initToastContainer();
+  if (!toastContainer) return document.createElement('div');
+
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-loading';
+
+  toast.innerHTML = `
+    <div class="toast-spinner"></div>
+    <div class="toast-message">${message}</div>
+  `;
+
+  toastContainer.appendChild(toast);
+  return toast;
+}
+
+// Update a toast to success with optional video link
+function updateToastSuccess(toast: HTMLElement, message: string, videoUrl?: string) {
+  toast.className = 'toast toast-success';
+
+  const successIcon = `<svg class="toast-icon toast-success" viewBox="0 0 20 20" fill="currentColor">
+    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+  </svg>`;
+
+  let messageHtml = message;
+  if (videoUrl) {
+    messageHtml = `${message}<br><a href="${videoUrl}" target="_blank" rel="noopener noreferrer">View on Vimeo →</a>`;
+  }
+
+  toast.innerHTML = `
+    ${successIcon}
+    <div class="toast-message">${messageHtml}</div>
+  `;
+
+  // Auto-dismiss after 8 seconds for success with link
+  setTimeout(() => {
+    toast.classList.add('toast-fade-out');
+    setTimeout(() => {
+      toast.remove();
+    }, 300);
+  }, videoUrl ? 8000 : 4000);
+}
+
+// Update a toast to error
+function updateToastError(toast: HTMLElement, message: string) {
+  toast.className = 'toast toast-error';
+
+  const errorIcon = `<svg class="toast-icon toast-error" viewBox="0 0 20 20" fill="currentColor">
+    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+  </svg>`;
+
+  toast.innerHTML = `
+    ${errorIcon}
+    <div class="toast-message">${message}</div>
+  `;
+
+  // Auto-dismiss after 5 seconds
+  setTimeout(() => {
+    toast.classList.add('toast-fade-out');
+    setTimeout(() => {
+      toast.remove();
+    }, 300);
+  }, 5000);
+}
+
 // ============================================================================
 // Timeline Utility Functions
 // ============================================================================
@@ -238,6 +324,495 @@ function generateClipId(): string {
 
 function generateTrackId(): string {
   return `track-${nextTrackId++}`;
+}
+
+// Helper function to get file type icon
+function getFileIcon(fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+
+  const icons: Record<string, string> = {
+    'mp3': '🎵',
+    'wav': '🎵',
+    'm4a': '🎵',
+    'ogg': '🎵',
+    'flac': '🎵',
+    'aac': '🎵',
+    'mp4': '🎬',
+    'mov': '🎬',
+    'avi': '🎬',
+    'webm': '🎬',
+    'mkv': '🎬',
+    'jpg': '🖼️',
+    'jpeg': '🖼️',
+    'png': '🖼️',
+    'gif': '🖼️',
+    'svg': '🖼️',
+    'webp': '🖼️'
+  };
+
+  return icons[ext] || '📄';
+}
+
+// Helper function to format file size
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// Helper function to format duration
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Reusable component for file item display
+interface FileItemOptions {
+  fileName: string;
+  index: number;
+  dataAttribute: string;
+  metaText?: string;
+  duration?: number;
+  fileSize?: number;
+  isSelected?: boolean;
+}
+
+function createFileItem(options: FileItemOptions): HTMLDivElement {
+  const { fileName, index, dataAttribute, metaText, duration, fileSize, isSelected = false } = options;
+
+  const fileItem = document.createElement('div');
+  fileItem.className = 'file-item';
+  fileItem.setAttribute('draggable', 'true');
+  fileItem.setAttribute('data-file-index', index.toString());
+
+  if (isSelected) {
+    fileItem.classList.add('selected');
+  }
+
+  const icon = getFileIcon(fileName);
+  // Always include meta span to maintain grid structure, even if empty
+  const metaBadge = metaText ? `<span class="file-meta">${metaText}</span>` : '<span class="file-meta-placeholder"></span>';
+
+  // Build metadata display
+  let metadataRow = '';
+  if (duration || fileSize) {
+    const durationStr = duration ? `<span class="file-duration">⏱️ ${formatDuration(duration)}</span>` : '';
+    const sizeStr = fileSize ? `<span class="file-size">💾 ${formatFileSize(fileSize)}</span>` : '';
+    metadataRow = `
+      <div class="file-metadata">
+        ${durationStr}
+        ${sizeStr}
+      </div>
+    `;
+  }
+
+  fileItem.innerHTML = `
+    <div class="file-info">
+      <span class="file-icon">${icon}</span>
+      <span class="file-number">${index + 1}</span>
+      <div class="file-name-container">
+        <span class="file-name" title="${fileName}">${fileName}</span>
+        ${metadataRow}
+      </div>
+      ${metaBadge}
+    </div>
+    <div class="file-actions">
+      <button class="icon-btn danger" ${dataAttribute}="${index}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+  `;
+
+  // Add drag and drop event listeners
+  fileItem.addEventListener('dragstart', (e) => {
+    e.dataTransfer!.effectAllowed = 'move';
+    e.dataTransfer!.setData('text/plain', index.toString());
+    fileItem.classList.add('dragging');
+  });
+
+  fileItem.addEventListener('dragend', () => {
+    fileItem.classList.remove('dragging');
+  });
+
+  fileItem.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = 'move';
+  });
+
+  // Add selection on click
+  fileItem.addEventListener('click', (e) => {
+    // Don't trigger selection if clicking the delete button
+    if ((e.target as HTMLElement).closest('.icon-btn')) {
+      return;
+    }
+
+    const container = fileItem.parentElement;
+    if (!container) return;
+
+    if (e.ctrlKey || e.metaKey) {
+      // Multi-select
+      fileItem.classList.toggle('selected');
+    } else {
+      // Single select - deselect all others first
+      container.querySelectorAll('.file-item.selected').forEach(item => {
+        item.classList.remove('selected');
+      });
+      fileItem.classList.add('selected');
+    }
+  });
+
+  return fileItem;
+}
+
+// Metadata table functions
+function getMusicTrackForAudioClip(audioClip: Clip): string {
+  // Find if there's a background track (music) that overlaps with this audio clip
+  const musicTracks = timeline.tracks.filter(t => t.type === 'background');
+
+  if (musicTracks.length === 0) {
+    return 'No music';
+  }
+
+  // Check which music tracks have clips that overlap with this audio clip
+  for (const musicTrack of musicTracks) {
+    if (musicTrack.clips.length > 0) {
+      // For simplicity, if there's any music track with clips, use it
+      if (musicTrack.mode === 'random' && musicTrack.randomPool && musicTrack.randomPool.length > 0) {
+        return `${musicTrack.name} (${musicTrack.randomPool.length} files)`;
+      } else if (musicTrack.clips[0]) {
+        return musicTrack.clips[0].sourceName;
+      }
+    }
+  }
+
+  return 'No music';
+}
+
+function autoFillTitleFromFilename(filename: string): string {
+  // Remove file extension
+  let title = filename.replace(/\.(mp3|wav|m4a|ogg|flac|aac)$/i, '');
+
+  // Replace underscores and hyphens with spaces
+  title = title.replace(/[_-]/g, ' ');
+
+  // Capitalize first letter of each word
+  title = title.replace(/\b\w/g, (char) => char.toUpperCase());
+
+  return title;
+}
+
+function updateProcessButton() {
+  const processBtn = document.getElementById('process-all-btn') as HTMLButtonElement;
+  const processCount = document.getElementById('process-count');
+
+  if (processBtn && processCount) {
+    const count = videoMetadataList.length;
+    processCount.textContent = count.toString();
+    processBtn.disabled = count === 0;
+  }
+}
+
+function populateMetadataTable() {
+  const metadataTbody = document.getElementById('metadata-tbody');
+  if (!metadataTbody) return;
+
+  // Clear existing rows
+  metadataTbody.innerHTML = '';
+  videoMetadataList = [];
+
+  // Get all audio clips from audio tracks (not background tracks)
+  const audioTracks = timeline.tracks.filter(t => t.type === 'audio');
+
+  let rowIndex = 0;
+  for (const track of audioTracks) {
+    for (const clip of track.clips) {
+      rowIndex++;
+
+      const musicTrack = getMusicTrackForAudioClip(clip);
+      const title = autoFillTitleFromFilename(clip.sourceName);
+
+      // Create metadata entry
+      const metadata: VideoMetadata = {
+        clipId: clip.id,
+        audioFileName: clip.sourceName,
+        musicTrackName: musicTrack,
+        title: title,
+        description: ''
+      };
+
+      videoMetadataList.push(metadata);
+
+      // Create table row
+      const row = document.createElement('tr');
+      row.setAttribute('data-clip-id', clip.id);
+      row.innerHTML = `
+        <td class="text-center">${rowIndex}</td>
+        <td title="${clip.sourceName}">${clip.sourceName}</td>
+        <td>${musicTrack}</td>
+        <td>
+          <input type="text" class="metadata-input title-input" value="${title}" data-clip-id="${clip.id}">
+        </td>
+        <td>
+          <input type="text" class="metadata-input description-input" value="" data-clip-id="${clip.id}" placeholder="Add description...">
+        </td>
+        <td class="text-center">
+          <button class="icon-btn" title="Clear">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </td>
+      `;
+
+      metadataTbody.appendChild(row);
+
+      // Add event listeners for input changes
+      const titleInput = row.querySelector('.title-input') as HTMLInputElement;
+      const descInput = row.querySelector('.description-input') as HTMLInputElement;
+
+      if (titleInput) {
+        titleInput.addEventListener('input', (e) => {
+          const input = e.target as HTMLInputElement;
+          const clipId = input.getAttribute('data-clip-id');
+          const entry = videoMetadataList.find(m => m.clipId === clipId);
+          if (entry) {
+            entry.title = input.value;
+          }
+        });
+      }
+
+      if (descInput) {
+        descInput.addEventListener('input', (e) => {
+          const input = e.target as HTMLInputElement;
+          const clipId = input.getAttribute('data-clip-id');
+          const entry = videoMetadataList.find(m => m.clipId === clipId);
+          if (entry) {
+            entry.description = input.value;
+          }
+        });
+      }
+
+      // Add clear button handler
+      const clearBtn = row.querySelector('.icon-btn');
+      if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+          if (titleInput) titleInput.value = '';
+          if (descInput) descInput.value = '';
+          const entry = videoMetadataList.find(m => m.clipId === clip.id);
+          if (entry) {
+            entry.title = '';
+            entry.description = '';
+          }
+        });
+      }
+    }
+  }
+
+  console.log(`📋 Populated metadata table with ${rowIndex} entries`);
+  updateProcessButton();
+}
+
+// Process all videos for bulk export
+async function processAllVideos() {
+  console.log('=== Starting bulk video processing ===');
+
+  if (videoMetadataList.length === 0) {
+    showToast('No videos to process', 'warning');
+    return;
+  }
+
+  // Check for background - check if color tab is active or if an image is selected
+  const colorTabActive = document.querySelector('.bg-tab[data-tab="color"]')?.classList.contains('active');
+  const hasBackground = selectedImage || colorTabActive;
+
+  if (!hasBackground) {
+    showToast('Please select a background image or color', 'error');
+    return;
+  }
+
+  // Disable process button
+  const processBtn = document.getElementById('process-all-btn') as HTMLButtonElement;
+  if (processBtn) {
+    processBtn.disabled = true;
+  }
+
+  // Show progress overlay
+  const progressOverlay = document.getElementById('progress-overlay');
+  const progressText = document.getElementById('progress-text');
+  const progressDetails = document.getElementById('progress-details');
+  const progressBar = document.getElementById('progress-bar');
+
+  if (progressOverlay) {
+    progressOverlay.style.display = 'flex';
+  }
+
+  try {
+    const totalVideos = videoMetadataList.length;
+    let successCount = 0;
+    let failCount = 0;
+    processedVideos = []; // Clear previous results
+
+    // Get background image path
+    let imagePathToUse = selectedImage;
+    if (!selectedImage && colorTabActive) {
+      const bgColorPicker = document.getElementById('bg-color-picker') as HTMLInputElement;
+      const solidColor = bgColorPicker?.value || '#667eea';
+
+      imagePathToUse = await invoke<string>('create_solid_color_image', {
+        color: solidColor,
+        width: 1280,
+        height: 720
+      });
+      console.log('Created temporary solid color image:', imagePathToUse);
+    }
+
+    // Get background music tracks
+    const musicTracks = timeline.tracks.filter(t => t.type === 'background');
+
+    // Process each video
+    for (let i = 0; i < videoMetadataList.length; i++) {
+      const metadata = videoMetadataList[i];
+      const videoNum = i + 1;
+
+      // Update progress
+      const progress = ((i / totalVideos) * 100).toFixed(0);
+      if (progressBar) {
+        progressBar.style.width = `${progress}%`;
+      }
+      if (progressText) {
+        progressText.textContent = `${progress}%`;
+      }
+      if (progressDetails) {
+        progressDetails.textContent = `Processing video ${videoNum} of ${totalVideos}: ${metadata.title || metadata.audioFileName}`;
+      }
+
+      try {
+        // Find the audio clip
+        const audioTracks = timeline.tracks.filter(t => t.type === 'audio');
+        let audioClip: Clip | null = null;
+
+        for (const track of audioTracks) {
+          const clip = track.clips.find(c => c.id === metadata.clipId);
+          if (clip) {
+            audioClip = clip;
+            break;
+          }
+        }
+
+        if (!audioClip) {
+          console.error(`Audio clip not found for ${metadata.audioFileName}`);
+          failCount++;
+          continue;
+        }
+
+        // Get music for this audio
+        let bgMusicPath: string | null = null;
+        if (musicTracks.length > 0) {
+          const musicTrack = musicTracks[0]; // Use first music track for now
+          if (musicTrack.mode === 'random' && musicTrack.randomPool && musicTrack.randomPool.length > 0) {
+            // Pick random music from pool
+            bgMusicPath = selectRandomFile(musicTrack.randomPool);
+          } else if (musicTrack.clips.length > 0) {
+            bgMusicPath = musicTrack.clips[0].sourceFile;
+          }
+        }
+
+        // Create timeline data for this single audio file
+        const singleAudioTimeline = {
+          tracks: [{
+            clips: [{
+              source_file: audioClip.sourceFile,
+              start_time: 0, // Start at 0 for individual video
+              duration: audioClip.duration,
+              trim_start: audioClip.trimStart,
+              trim_end: audioClip.trimEnd
+            }],
+            volume: 1.0
+          }]
+        };
+
+        console.log(`Processing video ${videoNum}: ${metadata.title}`);
+        console.log(`  Audio: ${audioClip.sourceName}`);
+        console.log(`  Music: ${bgMusicPath || 'None'}`);
+
+        // Call Rust backend to create video
+        const result = await invoke<string>('convert_timeline_to_video', {
+          imagePath: imagePathToUse,
+          timeline: singleAudioTimeline,
+          backgroundStyle: backgroundStyle,
+          bgMusicPath: bgMusicPath,
+          bgMusicVolume: bgMusicVolume,
+          mainAudioVolume: mainAudioVolume
+        });
+
+        console.log(`✅ Video ${videoNum} created:`, result);
+        successCount++;
+
+        // Store successful result
+        processedVideos.push({
+          title: metadata.title || metadata.audioFileName,
+          videoPath: result,
+          metadata: metadata,
+          status: 'success'
+        });
+
+      } catch (error) {
+        console.error(`Failed to process video ${videoNum}:`, error);
+        failCount++;
+
+        // Store failed result
+        processedVideos.push({
+          title: metadata.title || metadata.audioFileName,
+          videoPath: '',
+          metadata: metadata,
+          status: 'failed'
+        });
+      }
+    }
+
+    // Final progress update
+    if (progressBar) {
+      progressBar.style.width = '100%';
+    }
+    if (progressText) {
+      progressText.textContent = '100%';
+    }
+    if (progressDetails) {
+      progressDetails.textContent = `Completed: ${successCount} succeeded, ${failCount} failed`;
+    }
+
+    // Show completion message
+    showToast(`Bulk processing complete! ${successCount}/${totalVideos} videos created successfully`, successCount === totalVideos ? 'success' : 'warning');
+
+    // Keep progress overlay visible for a moment, then show results modal
+    setTimeout(() => {
+      if (progressOverlay) {
+        progressOverlay.style.display = 'none';
+      }
+      // Show processed videos modal
+      showProcessedVideosModal();
+    }, 2000);
+
+  } catch (error) {
+    console.error('Bulk processing error:', error);
+    showToast('Bulk processing failed: ' + error, 'error');
+
+    if (progressOverlay) {
+      progressOverlay.style.display = 'none';
+    }
+  } finally {
+    // Re-enable button
+    if (processBtn) {
+      processBtn.disabled = false;
+    }
+  }
 }
 
 // Cryptographically secure unbiased random selection
@@ -965,6 +1540,12 @@ function startPlayback() {
   isPlaying = true;
   playbackStartTime = performance.now() - (timeline.playheadPosition * 1000);
 
+  // ✅ Reset autoplay flag - user interaction allows playback
+  autoplayBlocked = false;
+
+  // ✅ Preload audio for upcoming clips to ensure smooth playback
+  preloadUpcomingAudio(timeline.playheadPosition);
+
   // Update play button icon to pause
   if (timelinePlayBtn) {
     timelinePlayBtn.innerHTML = `
@@ -1026,11 +1607,43 @@ function updatePlayback() {
   playbackRequestId = requestAnimationFrame(updatePlayback);
 }
 
+// ✅ Preload audio for clips that will play soon
+function preloadUpcomingAudio(currentTime: number) {
+  const PRELOAD_AHEAD = 10; // Preload clips within next 10 seconds
+
+  for (const track of timeline.tracks) {
+    // Skip muted tracks and tracks with zero volume
+    if (track.muted || track.volume === 0) continue;
+
+    for (const clip of track.clips) {
+      const clipStart = clip.startTime;
+      const clipEnd = clip.startTime + clip.duration;
+
+      // Check if clip is upcoming (within preload window)
+      if (clipStart >= currentTime && clipStart <= currentTime + PRELOAD_AHEAD) {
+        // Create audio element if it doesn't exist
+        if (!timelineAudioElements.has(clip.id)) {
+          const audio = new Audio(convertFileSrc(clip.sourceFile));
+          audio.preload = 'auto';
+          timelineAudioElements.set(clip.id, audio);
+        }
+      }
+    }
+  }
+}
+
 function updateTimelineAudio(currentTime: number) {
   const newActiveClips = new Set<string>();
+  const SYNC_TOLERANCE = 0.3; // Allow 300ms drift before resyncing
 
   // Find all clips that should be playing at current time
   for (const track of timeline.tracks) {
+    // ✅ FIX 1: Skip muted tracks
+    if (track.muted) continue;
+
+    // ✅ FIX 2: Skip tracks with zero volume (optimization)
+    if (track.volume === 0) continue;
+
     for (const clip of track.clips) {
       const clipStart = clip.startTime;
       const clipEnd = clip.startTime + clip.duration;
@@ -1040,34 +1653,104 @@ function updateTimelineAudio(currentTime: number) {
 
         // Get or create audio element for this clip
         let audio = timelineAudioElements.get(clip.id);
-        if (!audio) {
+        const isNewAudio = !audio;
+
+        if (isNewAudio) {
           audio = new Audio(convertFileSrc(clip.sourceFile));
-          audio.volume = (track.volume / 100) * (mainAudioVolume / 100);
+          // Preload the audio for smoother playback
+          audio.preload = 'auto';
           timelineAudioElements.set(clip.id, audio);
-        } else {
-          // Update volume for existing audio elements (track volume * main volume)
-          audio.volume = (track.volume / 100) * (mainAudioVolume / 100);
         }
 
-        // If this clip wasn't playing before, start it
-        if (!activeTimelineClips.has(clip.id)) {
-          const relativeTime = currentTime - clipStart;
-          audio.currentTime = relativeTime;
-          audio.play().catch(err => {
-            console.error('Error playing clip audio:', err);
-          });
+        // ✅ FIX 3: Always update volume (track or main volume might have changed)
+        const targetVolume = (track.volume / 100) * (mainAudioVolume / 100);
+        audio.volume = targetVolume;
+
+        // Calculate where the audio should be playing
+        const relativeTime = currentTime - clipStart;
+
+        // ✅ FIX 4: Check if audio needs to play or resync
+        const needsToPlay = audio.paused || audio.ended;
+        const isOutOfSync = Math.abs(audio.currentTime - relativeTime) > SYNC_TOLERANCE;
+
+        if (needsToPlay || isOutOfSync) {
+          // ✅ FIX 5: Check if audio is ready before attempting playback
+          if (audio.readyState >= 2) { // HAVE_CURRENT_DATA or better
+            // Resync if needed (but not too aggressively to avoid stuttering)
+            if (isOutOfSync || isNewAudio) {
+              audio.currentTime = Math.max(0, relativeTime);
+            }
+
+            // ✅ FIX 6: Proper promise handling with retry logic
+            if (needsToPlay) {
+              audio.play().catch(err => {
+                // Handle autoplay restrictions gracefully
+                if (err.name === 'NotAllowedError') {
+                  if (!autoplayBlocked) {
+                    autoplayBlocked = true;
+                    console.warn('Autoplay blocked - pausing playback. Click play again to enable audio.');
+                    showToast('Browser blocked audio autoplay. Click Play again to enable audio.', 'warning', 4000);
+                    stopPlayback();
+                  }
+                } else if (err.name === 'NotSupportedError') {
+                  console.error(`Audio format not supported for "${clip.sourceName}":`, err);
+                  showToast(`Audio format not supported: ${clip.sourceName}`, 'error');
+                } else {
+                  console.error(`Error playing clip "${clip.sourceName}":`, err);
+                }
+              });
+            }
+          } else {
+            // Audio not ready yet, wait for it to load
+            if (isNewAudio) {
+              // Set up one-time listener for when audio is ready
+              const onCanPlay = () => {
+                audio!.currentTime = Math.max(0, currentTime - clipStart);
+                audio!.play().catch(err => {
+                  console.error(`Error playing clip "${clip.sourceName}" after load:`, err);
+                });
+                audio!.removeEventListener('canplay', onCanPlay);
+              };
+              audio.addEventListener('canplay', onCanPlay);
+            }
+          }
         }
       }
     }
   }
 
-  // Stop clips that are no longer active
+  // ✅ FIX 7: Stop clips that are no longer active
   for (const clipId of activeTimelineClips) {
     if (!newActiveClips.has(clipId)) {
       const audio = timelineAudioElements.get(clipId);
       if (audio) {
         audio.pause();
       }
+    }
+  }
+
+  // ✅ FIX 8: Cleanup distant audio elements to prevent memory leaks
+  // Remove audio elements for clips that are far from current playhead
+  const CLEANUP_DISTANCE = 30; // seconds - keep audio within 30s of playhead
+  for (const [clipId, audio] of timelineAudioElements.entries()) {
+    // Find the clip in timeline
+    let clipFound = false;
+    let clipTime = 0;
+
+    for (const track of timeline.tracks) {
+      const clip = track.clips.find(c => c.id === clipId);
+      if (clip) {
+        clipFound = true;
+        clipTime = clip.startTime;
+        break;
+      }
+    }
+
+    // If clip not found or is far from playhead, remove it
+    if (!clipFound || Math.abs(clipTime - currentTime) > CLEANUP_DISTANCE) {
+      audio.pause();
+      audio.src = ''; // Release media resources
+      timelineAudioElements.delete(clipId);
     }
   }
 
@@ -2030,7 +2713,29 @@ async function selectImage() {
     if (selected) {
       selectedImage = selected as string;
 
-      // Show preview
+      // Show preview in new bulk UI
+      const bgImagePreview = document.getElementById('bg-image-preview') as HTMLImageElement;
+      const imageDropZone = document.getElementById('image-drop-zone');
+      const newImageOptions = document.getElementById('image-options');
+
+      if (bgImagePreview) {
+        bgImagePreview.src = convertFileSrc(selectedImage);
+        bgImagePreview.style.display = 'block';
+      }
+
+      if (imageDropZone) {
+        // Hide the SVG and button, keep the drop zone visible with the preview
+        const svg = imageDropZone.querySelector('svg');
+        const button = imageDropZone.querySelector('button');
+        if (svg) (svg as HTMLElement).style.display = 'none';
+        if (button) (button as HTMLElement).style.display = 'none';
+      }
+
+      if (newImageOptions) {
+        newImageOptions.style.display = 'block';
+      }
+
+      // Legacy support for old UI
       if (imagePreview && imagePlaceholder && imageOptions) {
         imagePreview.src = convertFileSrc(selectedImage);
         imagePreview.style.display = 'block';
@@ -2101,8 +2806,123 @@ function updateVideoPreview() {
 }
 
 async function selectAudio() {
-  // Use the same logic as addNewTrackWithFiles
-  await addNewTrackWithFiles();
+  try {
+    const selected = await open({
+      multiple: true,
+      filters: [{
+        name: 'Audio',
+        extensions: ['mp3', 'wav', 'm4a', 'ogg']
+      }]
+    });
+
+    console.log('Audio files selected:', selected);
+
+    if (selected) {
+      const files = Array.isArray(selected) ? selected : [selected];
+      console.log(`Selected ${files.length} audio files`);
+
+      // Create or update the Audio Files track
+      let audioTrack = timeline.tracks.find(t => t.name === 'Audio Files');
+
+      if (!audioTrack) {
+        // Create new Audio Files track
+        audioTrack = {
+          id: generateTrackId(),
+          type: 'audio',
+          name: 'Audio Files',
+          clips: [],
+          volume: 100,
+          muted: false,
+          mode: 'single'
+        };
+        timeline.tracks.push(audioTrack);
+      } else {
+        // Clear existing clips
+        audioTrack.clips = [];
+      }
+
+      // Add all audio files as sequential clips
+      let currentStartTime = 0;
+      for (const filePath of files) {
+        const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
+
+        const clip: Clip = {
+          id: generateClipId(),
+          trackId: audioTrack.id,
+          sourceFile: filePath,
+          sourceName: fileName,
+          startTime: currentStartTime,
+          duration: 60, // Placeholder, will be updated with actual duration
+          trimStart: 0,
+          trimEnd: 0,
+          sourceDuration: 60
+        };
+
+        audioTrack.clips.push(clip);
+        console.log(`Added audio file "${fileName}" at ${currentStartTime}s`);
+        currentStartTime += 60;
+      }
+
+      // Show timeline section and container
+      const timelineSection = document.getElementById('step-timeline');
+      const timelineContainer = document.getElementById('timeline-container');
+      if (timelineSection) {
+        timelineSection.style.display = 'block';
+      }
+      if (timelineContainer) {
+        timelineContainer.style.display = 'block';
+      }
+
+      renderTimeline();
+      updateConvertButton();
+      populateMetadataTable();
+
+      // Update audio count badge and show file list
+      const audioCount = document.getElementById('audio-count');
+      const audioList = document.getElementById('audio-list');
+      const audioTable = document.getElementById('audio-table');
+
+      if (audioCount) {
+        audioCount.textContent = `${files.length} file${files.length !== 1 ? 's' : ''}`;
+      }
+
+      if (audioList && audioTable) {
+        // Show the audio list container
+        audioList.style.display = 'block';
+        console.log('🔍 audioList display:', audioList.style.display);
+        console.log('🔍 audioList computed style:', window.getComputedStyle(audioList).display);
+        console.log('🔍 audioTable children count:', audioTable.children.length);
+
+        // Hide the drop zone
+        const audioDropZone = document.getElementById('audio-drop-zone');
+        if (audioDropZone) {
+          audioDropZone.style.display = 'none';
+        }
+
+        // Clear existing items
+        audioTable.innerHTML = '';
+
+        // Add each audio file to the list
+        files.forEach((filePath, index) => {
+          const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
+          const audioItem = createFileItem({
+            fileName,
+            index,
+            dataAttribute: 'data-audio-index'
+          });
+          console.log('🎯 NEW CODE: Created audio item:', audioItem);
+          console.log('🎯 Audio item HTML:', audioItem.innerHTML);
+          audioTable.appendChild(audioItem);
+          console.log('🎯 Audio item in DOM? Parent:', audioItem.parentElement);
+          console.log('🎯 Audio item dimensions:', audioItem.getBoundingClientRect());
+        });
+
+        console.log(`✅ Added ${files.length} audio files to UI list (NEW CODE)`);
+      }
+    }
+  } catch (error) {
+    console.error('Error selecting audio files:', error);
+  }
 }
 
 async function selectAudioForTrack(trackId: string) {
@@ -2169,6 +2989,7 @@ async function addNewTrackWithFiles() {
     // Show mode selection dialog
     const modeDialog = document.createElement('div');
     modeDialog.className = 'mode-selection-dialog';
+    console.log('Created mode dialog element:', modeDialog);
     modeDialog.innerHTML = `
       <div class="mode-selection-content">
         <h3>Select Track Mode</h3>
@@ -2195,15 +3016,41 @@ async function addNewTrackWithFiles() {
       </div>
     `;
     document.body.appendChild(modeDialog);
+    console.log('Appended mode dialog to body. Dialog visible?', modeDialog.offsetHeight > 0);
+    console.log('Dialog styles:', window.getComputedStyle(modeDialog).display, window.getComputedStyle(modeDialog).zIndex);
 
-    const mode = await new Promise<'single' | 'random' | null>((resolve) => {
-      document.getElementById('mode-single')?.addEventListener('click', () => {
-        document.body.removeChild(modeDialog);
-        resolve('single');
+    const processMode = async (selectedMode: 'single' | 'random') => {
+      // Open file selection based on mode
+      const selected = await open({
+        multiple: true,
+        filters: [{
+          name: 'Audio',
+          extensions: ['mp3', 'mp4'] // Support mp4 audio as requested
+        }]
       });
-      document.getElementById('mode-random')?.addEventListener('click', () => {
+
+      console.log('File selection result:', selected);
+
+      if (selected) {
+        // User selected files, remove dialog and process
         document.body.removeChild(modeDialog);
-        resolve('random');
+        return { mode: selectedMode, files: selected };
+      } else {
+        // User cancelled file picker, keep dialog open
+        return null;
+      }
+    };
+
+    const result = await new Promise<{ mode: 'single' | 'random', files: string | string[] } | null>((resolve) => {
+      document.getElementById('mode-single')?.addEventListener('click', async () => {
+        const result = await processMode('single');
+        if (result) resolve(result);
+        // If result is null, dialog stays open for user to try again
+      });
+      document.getElementById('mode-random')?.addEventListener('click', async () => {
+        const result = await processMode('random');
+        if (result) resolve(result);
+        // If result is null, dialog stays open for user to try again
       });
       document.getElementById('mode-cancel')?.addEventListener('click', () => {
         document.body.removeChild(modeDialog);
@@ -2211,18 +3058,9 @@ async function addNewTrackWithFiles() {
       });
     });
 
-    if (!mode) return; // User cancelled
+    if (!result) return; // User cancelled
 
-    // Open file selection based on mode
-    const selected = await open({
-      multiple: true,
-      filters: [{
-        name: 'Audio',
-        extensions: ['mp3', 'mp4'] // Support mp4 audio as requested
-      }]
-    });
-
-    console.log('File selection result:', selected);
+    const { mode, files: selected } = result;
 
     if (selected) {
       const files = Array.isArray(selected) ? selected : [selected];
@@ -2235,8 +3073,8 @@ async function addNewTrackWithFiles() {
 
         const newTrack: Track = {
           id: generateTrackId(),
-          type: 'audio',
-          name: `Random Track ${timeline.tracks.length + 1}`,
+          type: 'background',
+          name: `Music Track ${timeline.tracks.length + 1}`,
           clips: [],
           volume: 100,
           muted: false,
@@ -2265,8 +3103,8 @@ async function addNewTrackWithFiles() {
         // Single mode: Add all files as sequential clips
         const newTrack: Track = {
           id: generateTrackId(),
-          type: 'audio',
-          name: `Audio Track ${timeline.tracks.length + 1}`,
+          type: 'background',
+          name: `Music Track ${timeline.tracks.length + 1}`,
           clips: [],
           volume: 100,
           muted: false,
@@ -2299,6 +3137,49 @@ async function addNewTrackWithFiles() {
       renderTimeline();
       updateConvertButton();
       updateVideoPreview();
+      populateMetadataTable();
+
+      // Also update the new bulk processing UI
+      const musicList = document.getElementById('music-list');
+      const musicTable = document.getElementById('music-table');
+      const musicCount = document.getElementById('music-count');
+
+      if (musicList && musicTable) {
+        // Show the music list container and hide drop zone
+        musicList.style.display = 'block';
+        console.log('🔍 musicList display:', musicList.style.display);
+        console.log('🔍 musicList computed style:', window.getComputedStyle(musicList).display);
+        console.log('🔍 musicTable children count:', musicTable.children.length);
+        const musicDropZone = document.getElementById('music-drop-zone');
+        if (musicDropZone) {
+          musicDropZone.style.display = 'none';
+        }
+
+        // Update count
+        if (musicCount) {
+          musicCount.textContent = `${files.length} track${files.length !== 1 ? 's' : ''}`;
+        }
+
+        // Clear existing items
+        musicTable.innerHTML = '';
+
+        // Add each music file to the list
+        files.forEach((filePath, index) => {
+          const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
+          const metaText = mode === 'random' ? '🎲 Random Pool' : '📋 Sequential';
+          const musicItem = createFileItem({
+            fileName,
+            index,
+            dataAttribute: 'data-music-index',
+            metaText
+          });
+          console.log('🎯 NEW CODE: Created music item:', musicItem);
+          console.log('🎯 Music item HTML:', musicItem.innerHTML);
+          musicTable.appendChild(musicItem);
+        });
+
+        console.log(`Added ${files.length} music files to UI (${mode} mode)`);
+      }
     }
   } catch (error) {
     console.error('Error adding new track with files:', error);
@@ -2544,9 +3425,26 @@ async function convertToVideo() {
     if (hasTimelineAudio) {
       console.log('Using timeline-based export');
 
-      // Prepare timeline data for Rust
+      // ✅ FIX: Separate audio tracks from background tracks
+      // Only send 'audio' type tracks to the main audio processing
+      // Background tracks should be handled separately or via bgMusicFile
+      const audioTracks = timeline.tracks.filter(t => t.type === 'audio');
+      const backgroundTracks = timeline.tracks.filter(t => t.type === 'background');
+
+      console.log(`Audio tracks: ${audioTracks.length}, Background tracks: ${backgroundTracks.length}`);
+
+      // ✅ Only include audio tracks that have clips
+      const audioTracksWithClips = audioTracks.filter(t => t.clips.length > 0);
+
+      if (audioTracksWithClips.length === 0) {
+        showToast('No audio clips found in audio tracks. Please add audio clips to your timeline.', 'error');
+        if (convertBtn) convertBtn.disabled = false;
+        return;
+      }
+
+      // Prepare timeline data for Rust (only audio tracks, not background)
       const timelineData = {
-        tracks: timeline.tracks.map(track => ({
+        tracks: audioTracksWithClips.map(track => ({
           clips: track.clips.map(clip => ({
             source_file: clip.sourceFile,
             start_time: clip.startTime,
@@ -2560,7 +3458,9 @@ async function convertToVideo() {
 
       console.log('Timeline data:', {
         trackCount: timelineData.tracks.length,
-        totalClips: timelineData.tracks.reduce((sum, t) => sum + t.clips.length, 0)
+        totalClips: timelineData.tracks.reduce((sum, t) => sum + t.clips.length, 0),
+        audioOnly: true,
+        backgroundTracksIgnored: backgroundTracks.length
       });
 
       console.log('Invoking convert_timeline_to_video...');
@@ -2654,7 +3554,7 @@ async function convertToVideo() {
 
 async function uploadToVimeo() {
   if (!lastGeneratedVideo || !vimeoToken) {
-    alert('Please set your Vimeo access token in Settings first');
+    showToast('Please set your Vimeo access token in Settings first', 'error');
     return;
   }
 
@@ -2677,6 +3577,8 @@ async function uploadToVimeo() {
     uploadBtn.textContent = 'Uploading...';
   }
 
+  const loadingToast = showLoadingToast(`Uploading "${videoTitle}" to Vimeo...`);
+
   try {
     const result = await invoke<string>('upload_to_vimeo', {
       videoPath: lastGeneratedVideo,
@@ -2684,11 +3586,15 @@ async function uploadToVimeo() {
       title: videoTitle
     });
 
+    updateToastSuccess(loadingToast, `Video uploaded successfully!`, result);
+
     if (resultMessage) {
       resultMessage.textContent = `Video uploaded to Vimeo successfully! ${result}`;
     }
   } catch (error) {
     console.error('Error uploading to Vimeo:', error);
+    updateToastError(loadingToast, `Upload failed: ${error}`);
+
     if (resultMessage) {
       resultMessage.textContent = `Vimeo upload failed: ${error}`;
     }
@@ -2706,6 +3612,216 @@ async function uploadToVimeo() {
     }
   }
 }
+
+// Show processed videos modal with results
+function showProcessedVideosModal() {
+  const modal = document.getElementById('videos-result-modal');
+  const tbody = document.getElementById('videos-result-tbody');
+
+  if (!modal || !tbody) return;
+
+  // Clear existing rows
+  tbody.innerHTML = '';
+
+  // Populate table with processed videos
+  processedVideos.forEach((video, index) => {
+    const row = document.createElement('tr');
+
+    if (video.status === 'success') {
+      row.innerHTML = `
+        <td>${index + 1}</td>
+        <td>${video.title}</td>
+        <td>
+          <button class="icon-btn preview-btn" data-index="${index}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Play
+          </button>
+        </td>
+        <td>
+          <button class="icon-btn publish-btn" data-index="${index}" data-video-path="${video.videoPath}" data-title="${video.title}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            Publish
+          </button>
+        </td>
+      `;
+    } else {
+      row.innerHTML = `
+        <td>${index + 1}</td>
+        <td>${video.title}</td>
+        <td><span style="color: #ff6b6b;">Failed</span></td>
+        <td><span style="color: #999;">N/A</span></td>
+      `;
+    }
+
+    tbody.appendChild(row);
+  });
+
+  // Add event listeners to preview buttons
+  tbody.querySelectorAll('.preview-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const index = parseInt((e.currentTarget as HTMLElement).dataset.index || '0');
+      previewVideo(index);
+    });
+  });
+
+  // Add event listeners to publish buttons
+  tbody.querySelectorAll('.publish-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const target = e.currentTarget as HTMLElement;
+      const videoPath = target.dataset.videoPath || '';
+      const title = target.dataset.title || '';
+
+      // Upload to Vimeo
+      await uploadSingleVideoToVimeo(videoPath, title, target as HTMLButtonElement);
+    });
+  });
+
+  // Show modal
+  modal.style.display = 'flex';
+}
+
+// Preview video in modal
+function previewVideo(index: number) {
+  const video = processedVideos[index];
+  if (!video || video.status !== 'success') return;
+
+  const previewModal = document.getElementById('video-preview-modal');
+  const videoPlayer = document.getElementById('preview-video-player') as HTMLVideoElement;
+  const titleElement = document.getElementById('preview-video-title');
+
+  if (!previewModal || !videoPlayer) return;
+
+  // Set video source
+  videoPlayer.src = convertFileSrc(video.videoPath);
+  if (titleElement) titleElement.textContent = video.title;
+
+  // Show modal
+  previewModal.style.display = 'flex';
+}
+
+// Upload single video to Vimeo
+async function uploadSingleVideoToVimeo(videoPath: string, title: string, button: HTMLButtonElement) {
+  if (!vimeoToken) {
+    showToast('Please set your Vimeo access token in Settings first', 'error');
+    return;
+  }
+
+  const originalText = button.innerHTML;
+  button.disabled = true;
+  button.textContent = 'Uploading...';
+
+  const loadingToast = showLoadingToast(`Uploading "${title}" to Vimeo...`);
+
+  try {
+    const result = await invoke<string>('upload_to_vimeo', {
+      videoPath: videoPath,
+      accessToken: vimeoToken,
+      title: title
+    });
+
+    updateToastSuccess(loadingToast, `"${title}" uploaded successfully!`, result);
+
+    button.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg> Uploaded`;
+    button.style.color = '#51cf66';
+  } catch (error) {
+    console.error('Error uploading to Vimeo:', error);
+    updateToastError(loadingToast, `Failed to upload "${title}": ${error}`);
+
+    button.innerHTML = originalText;
+    button.disabled = false;
+  }
+}
+
+// Upload all videos to Vimeo
+async function uploadAllVideosToVimeo() {
+  if (!vimeoToken) {
+    showToast('Please set your Vimeo access token in Settings first', 'error');
+    return;
+  }
+
+  const successfulVideos = processedVideos.filter(v => v.status === 'success');
+  if (successfulVideos.length === 0) {
+    showToast('No successful videos to upload', 'warning');
+    return;
+  }
+
+  const publishAllBtn = document.getElementById('publish-all-vimeo') as HTMLButtonElement;
+  if (publishAllBtn) {
+    publishAllBtn.disabled = true;
+    publishAllBtn.textContent = 'Uploading...';
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  const totalVideos = successfulVideos.length;
+
+  const progressToast = showLoadingToast(`Uploading batch: 0/${totalVideos} videos...`);
+
+  for (let i = 0; i < successfulVideos.length; i++) {
+    const video = successfulVideos[i];
+
+    // Update progress toast
+    const messageDiv = progressToast.querySelector('.toast-message');
+    if (messageDiv) {
+      messageDiv.textContent = `Uploading: "${video.title}" (${i + 1}/${totalVideos})...`;
+    }
+
+    try {
+      const result = await invoke<string>('upload_to_vimeo', {
+        videoPath: video.videoPath,
+        accessToken: vimeoToken,
+        title: video.title
+      });
+      successCount++;
+      console.log(`✅ Uploaded: ${video.title} -> ${result}`);
+    } catch (error) {
+      failCount++;
+      console.error(`❌ Failed to upload ${video.title}:`, error);
+    }
+  }
+
+  if (publishAllBtn) {
+    publishAllBtn.disabled = false;
+    publishAllBtn.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      Publish All to Vimeo
+    `;
+  }
+
+  // Update final status
+  if (failCount === 0) {
+    updateToastSuccess(progressToast, `All ${successCount} videos uploaded successfully!`);
+  } else if (successCount === 0) {
+    updateToastError(progressToast, `All ${failCount} uploads failed`);
+  } else {
+    // Show warning for partial success
+    progressToast.className = 'toast toast-warning';
+    const warningIcon = `<svg class="toast-icon toast-warning" viewBox="0 0 20 20" fill="currentColor">
+      <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+    </svg>`;
+    progressToast.innerHTML = `
+      ${warningIcon}
+      <div class="toast-message">Batch upload complete: ${successCount} succeeded, ${failCount} failed</div>
+    `;
+    setTimeout(() => {
+      progressToast.classList.add('toast-fade-out');
+      setTimeout(() => progressToast.remove(), 300);
+    }, 6000);
+  }
+}
+
 
 function openSettings() {
   const modal = document.querySelector('#settings-modal') as HTMLElement;
@@ -2828,6 +3944,59 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Vimeo upload listener
   document.querySelector('#upload-vimeo-btn')?.addEventListener('click', uploadToVimeo);
+
+  // Processed videos modal listeners
+  document.querySelector('#close-videos-modal')?.addEventListener('click', () => {
+    const modal = document.getElementById('videos-result-modal');
+    if (modal) modal.style.display = 'none';
+  });
+  document.querySelector('#close-videos-modal-btn')?.addEventListener('click', () => {
+    const modal = document.getElementById('videos-result-modal');
+    if (modal) modal.style.display = 'none';
+  });
+  // Publish all button - Vimeo only
+  document.querySelector('#publish-all-btn')?.addEventListener('click', async () => {
+    await uploadAllVideosToVimeo();
+  });
+
+  // Video preview modal listeners
+  document.querySelector('#close-preview-modal')?.addEventListener('click', () => {
+    const modal = document.getElementById('video-preview-modal');
+    const videoPlayer = document.getElementById('preview-video-player') as HTMLVideoElement;
+    if (modal) modal.style.display = 'none';
+    if (videoPlayer) {
+      videoPlayer.pause();
+      videoPlayer.src = '';
+    }
+  });
+  document.querySelector('#close-preview-modal-btn')?.addEventListener('click', () => {
+    const modal = document.getElementById('video-preview-modal');
+    const videoPlayer = document.getElementById('preview-video-player') as HTMLVideoElement;
+    if (modal) modal.style.display = 'none';
+    if (videoPlayer) {
+      videoPlayer.pause();
+      videoPlayer.src = '';
+    }
+  });
+
+  // Close modals when clicking outside
+  document.querySelector('#videos-result-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      const modal = document.getElementById('videos-result-modal');
+      if (modal) modal.style.display = 'none';
+    }
+  });
+  document.querySelector('#video-preview-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      const modal = document.getElementById('video-preview-modal');
+      const videoPlayer = document.getElementById('preview-video-player') as HTMLVideoElement;
+      if (modal) modal.style.display = 'none';
+      if (videoPlayer) {
+        videoPlayer.pause();
+        videoPlayer.src = '';
+      }
+    }
+  });
 
   // Close modal when clicking outside
   document.querySelector('#settings-modal')?.addEventListener('click', (e) => {
@@ -2954,6 +4123,57 @@ window.addEventListener("DOMContentLoaded", () => {
   listen('clear-project', () => {
     clearProject();
   });
+
+  // Reset All button listener
+  document.querySelector('#reset-all')?.addEventListener('click', () => {
+    clearProject();
+  });
+
+  // Theme toggle functionality with localStorage persistence
+  const themeToggleBtn = document.querySelector('#theme-toggle-btn') as HTMLButtonElement;
+  const sunIcon = document.querySelector('.theme-icon-sun') as HTMLElement;
+  const moonIcon = document.querySelector('.theme-icon-moon') as HTMLElement;
+  const themeLabel = document.querySelector('.theme-label') as HTMLElement;
+
+  console.log('Theme toggle button found:', themeToggleBtn);
+  console.log('Sun icon:', sunIcon);
+  console.log('Moon icon:', moonIcon);
+  console.log('Theme label:', themeLabel);
+
+  if (themeToggleBtn) {
+    // Load saved theme or default to 'dark'
+    const savedTheme = localStorage.getItem('timeline-theme') || 'dark';
+    console.log('Saved theme from localStorage:', savedTheme);
+
+    // Function to apply theme globally to document.body
+    function applyTheme(theme: string) {
+      console.log('Applying theme:', theme);
+      document.body.setAttribute('data-theme', theme);
+      console.log('Body data-theme attribute set to:', document.body.getAttribute('data-theme'));
+
+      // Update icons and label based on theme
+      if (theme === 'light') {
+        if (sunIcon) sunIcon.style.display = 'none';
+        if (moonIcon) moonIcon.style.display = 'block';
+        if (themeLabel) themeLabel.textContent = 'Light';
+      } else {
+        if (sunIcon) sunIcon.style.display = 'block';
+        if (moonIcon) moonIcon.style.display = 'none';
+        if (themeLabel) themeLabel.textContent = 'Dark';
+      }
+    }
+
+    // Toggle theme on button click
+    themeToggleBtn.addEventListener('click', () => {
+      const currentTheme = document.body.getAttribute('data-theme') || 'dark';
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      applyTheme(newTheme);
+      localStorage.setItem('timeline-theme', newTheme);
+    });
+
+    // Apply saved theme on load
+    applyTheme(savedTheme);
+  }
 });
 
 // ============================================================================
@@ -3188,3 +4408,388 @@ function clearProject() {
   showToast('Project cleared successfully!', 'success', 2000);
   console.log('Project cleared');
 }
+
+// ============================================================================
+// NEW BULK PROCESSING UI EVENT LISTENERS
+// ============================================================================
+
+// Initialize new bulk processing UI after a short delay to ensure DOM is ready
+setTimeout(() => {
+  const browseAudioBtn = document.getElementById('browse-audio-btn');
+  const browseMusicBtn = document.getElementById('browse-music-btn');
+  const browseImageBtn = document.getElementById('browse-image-btn');
+  const audioDropZone = document.getElementById('audio-drop-zone');
+  const musicDropZone = document.getElementById('music-drop-zone');
+
+  console.log('Checking for bulk UI elements...');
+  console.log('browseAudioBtn:', browseAudioBtn);
+
+  if (browseAudioBtn) {
+    console.log('🎵 Bulk processing UI detected - initializing...');
+
+    // Browse Audio Files button
+    browseAudioBtn.addEventListener('click', async () => {
+      console.log('Browse audio clicked');
+      await selectAudio();
+    });
+  }
+
+  // Browse Music button
+  if (browseMusicBtn) {
+    browseMusicBtn.addEventListener('click', async () => {
+      console.log('Browse music clicked');
+      await addNewTrackWithFiles();
+    });
+  }
+
+  // Browse Image button - use delegation on the drop zone
+  const imageDropZone = document.getElementById('image-drop-zone');
+  if (imageDropZone) {
+    imageDropZone.addEventListener('click', async (e) => {
+      // Only trigger if clicking the button or the drop zone itself (not SVG)
+      const target = e.target as HTMLElement;
+      if (target.id === 'browse-image-btn' || target.closest('#browse-image-btn') || target === imageDropZone) {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('Browse image clicked');
+        await selectImage();
+      }
+    });
+  }
+
+  // Background tab switching (Image/Solid Color)
+  const bgTabs = document.querySelectorAll('.bg-tab');
+  bgTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const targetTab = tab.getAttribute('data-tab');
+      console.log('Background tab clicked:', targetTab);
+
+      // Remove active class from all tabs and contents
+      document.querySelectorAll('.bg-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.bg-content').forEach(c => c.classList.remove('active'));
+
+      // Add active class to clicked tab and corresponding content
+      tab.classList.add('active');
+      const content = document.getElementById(`bg-${targetTab}-content`);
+      if (content) {
+        content.classList.add('active');
+      }
+    });
+  });
+
+  // Drag & Drop for audio files
+  if (audioDropZone) {
+    audioDropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      audioDropZone.classList.add('dragover');
+    });
+
+    audioDropZone.addEventListener('dragleave', () => {
+      audioDropZone.classList.remove('dragover');
+    });
+
+    audioDropZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      audioDropZone.classList.remove('dragover');
+      console.log('Files dropped on audio zone');
+    });
+
+    // Click zone to browse
+    audioDropZone.addEventListener('click', async (e) => {
+      if (e.target === audioDropZone || (e.target as HTMLElement).closest('.drop-zone')) {
+        console.log('Audio drop zone clicked');
+        await selectAudio();
+      }
+    });
+  }
+
+  // Drag & Drop for music files
+  if (musicDropZone) {
+    musicDropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      musicDropZone.classList.add('dragover');
+    });
+
+    musicDropZone.addEventListener('dragleave', () => {
+      musicDropZone.classList.remove('dragover');
+    });
+
+    musicDropZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      musicDropZone.classList.remove('dragover');
+      console.log('Files dropped on music zone');
+    });
+
+    // Click zone to browse
+    musicDropZone.addEventListener('click', async (e) => {
+      if (e.target === musicDropZone || (e.target as HTMLElement).closest('.drop-zone')) {
+        console.log('Music drop zone clicked');
+        await addNewTrackWithFiles();
+      }
+    });
+  }
+
+  // Metadata table buttons
+  const autoFillMetadataBtn = document.getElementById('auto-fill-metadata');
+  if (autoFillMetadataBtn) {
+    autoFillMetadataBtn.addEventListener('click', () => {
+      console.log('Auto-fill metadata clicked');
+      populateMetadataTable();
+      showToast('Metadata auto-filled from filenames', 'success');
+    });
+  }
+
+  // Process all videos button
+  const processAllBtn = document.getElementById('process-all-btn');
+  if (processAllBtn) {
+    processAllBtn.addEventListener('click', async () => {
+      console.log('Process all videos clicked');
+      await processAllVideos();
+    });
+  }
+
+  // Audio file list buttons
+  const addMoreAudioBtn = document.getElementById('add-more-audio');
+  console.log('addMoreAudioBtn:', addMoreAudioBtn);
+  if (addMoreAudioBtn) {
+    addMoreAudioBtn.addEventListener('click', async () => {
+      console.log('Add more audio clicked');
+      await selectAudio();
+    });
+  }
+
+  const clearAudioBtn = document.getElementById('clear-audio');
+  console.log('clearAudioBtn:', clearAudioBtn);
+  if (clearAudioBtn) {
+    clearAudioBtn.addEventListener('click', () => {
+      console.log('Clear audio clicked');
+      const audioTrack = timeline.tracks.find(t => t.name === 'Audio Files');
+      if (audioTrack) {
+        audioTrack.clips = [];
+        renderTimeline();
+        updateConvertButton();
+        populateMetadataTable();
+
+        // Hide audio list and show drop zone
+        const audioList = document.getElementById('audio-list');
+        const audioDropZone = document.getElementById('audio-drop-zone');
+        const audioCount = document.getElementById('audio-count');
+
+        if (audioList) audioList.style.display = 'none';
+        if (audioDropZone) audioDropZone.style.display = 'flex';
+        if (audioCount) audioCount.textContent = '0 files';
+
+        showToast('All audio files cleared', 'success');
+      }
+    });
+  }
+
+  // Event delegation for individual audio file delete buttons
+  const audioTable = document.getElementById('audio-table');
+  if (audioTable) {
+    audioTable.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const deleteBtn = target.closest('[data-audio-index]');
+
+      if (deleteBtn) {
+        const index = parseInt(deleteBtn.getAttribute('data-audio-index') || '0');
+        console.log('Delete audio file at index:', index);
+
+        const audioTrack = timeline.tracks.find(t => t.name === 'Audio Files');
+        if (audioTrack && audioTrack.clips[index]) {
+          // Remove the clip
+          audioTrack.clips.splice(index, 1);
+
+          // Re-arrange remaining clips
+          let currentTime = 0;
+          for (const clip of audioTrack.clips) {
+            clip.startTime = currentTime;
+            currentTime += clip.duration;
+          }
+
+          renderTimeline();
+          updateConvertButton();
+          populateMetadataTable();
+
+          // Update the UI list
+          const audioList = document.getElementById('audio-list');
+          const audioDropZone = document.getElementById('audio-drop-zone');
+          const audioCount = document.getElementById('audio-count');
+
+          if (audioTrack.clips.length === 0) {
+            // No more files, hide list and show drop zone
+            if (audioList) audioList.style.display = 'none';
+            if (audioDropZone) audioDropZone.style.display = 'flex';
+            if (audioCount) audioCount.textContent = '0 files';
+          } else {
+            // Rebuild the list
+            audioTable.innerHTML = '';
+            audioTrack.clips.forEach((clip, idx) => {
+              const audioItem = createFileItem({
+                fileName: clip.sourceName,
+                index: idx,
+                dataAttribute: 'data-audio-index'
+              });
+              audioTable.appendChild(audioItem);
+            });
+
+            if (audioCount) {
+              audioCount.textContent = `${audioTrack.clips.length} file${audioTrack.clips.length !== 1 ? 's' : ''}`;
+            }
+          }
+
+          showToast('Audio file removed', 'success');
+        }
+      }
+    });
+  }
+
+  // Music file list buttons
+  const addMoreMusicBtn = document.getElementById('add-more-music');
+  console.log('addMoreMusicBtn:', addMoreMusicBtn);
+  if (addMoreMusicBtn) {
+    addMoreMusicBtn.addEventListener('click', async () => {
+      console.log('Add more music clicked');
+      await addNewTrackWithFiles();
+    });
+  }
+
+  const clearMusicBtn = document.getElementById('clear-music');
+  console.log('clearMusicBtn:', clearMusicBtn);
+  if (clearMusicBtn) {
+    clearMusicBtn.addEventListener('click', () => {
+      console.log('Clear music clicked');
+      // Remove all background tracks
+      timeline.tracks = timeline.tracks.filter(t => t.type !== 'background');
+
+      renderTimeline();
+      updateConvertButton();
+      populateMetadataTable();
+
+      // Hide music list and show drop zone
+      const musicList = document.getElementById('music-list');
+      const musicDropZone = document.getElementById('music-drop-zone');
+      const musicCount = document.getElementById('music-count');
+
+      if (musicList) musicList.style.display = 'none';
+      if (musicDropZone) musicDropZone.style.display = 'flex';
+      if (musicCount) musicCount.textContent = '0 tracks';
+
+      showToast('All music tracks cleared', 'success');
+    });
+  }
+
+  // Color preset buttons
+  const colorPresets = document.querySelectorAll('.color-preset');
+  console.log('Color presets found:', colorPresets.length);
+  colorPresets.forEach(preset => {
+    preset.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const color = preset.getAttribute('data-color');
+      const colorPicker = document.getElementById('bg-color-picker') as HTMLInputElement;
+      console.log('Color preset clicked! Color:', color, 'Picker:', colorPicker);
+      if (color && colorPicker) {
+        colorPicker.value = color;
+        console.log('Color picker value set to:', colorPicker.value);
+
+        // Trigger input event so any listeners are notified
+        const event = new Event('input', { bubbles: true });
+        colorPicker.dispatchEvent(event);
+      }
+    });
+  });
+
+  // Event delegation for individual music file delete buttons
+  const musicTable = document.getElementById('music-table');
+  if (musicTable) {
+    musicTable.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const deleteBtn = target.closest('[data-music-index]');
+
+      if (deleteBtn) {
+        const index = parseInt(deleteBtn.getAttribute('data-music-index') || '0');
+        console.log('Delete music file at index:', index);
+
+        // Find the background track that contains music files
+        const musicTrack = timeline.tracks.find(t => t.type === 'background');
+
+        if (musicTrack) {
+          // Check if it's a random mode track with a pool
+          if (musicTrack.mode === 'random' && musicTrack.randomPool) {
+            // Remove from random pool
+            musicTrack.randomPool.splice(index, 1);
+
+            // If pool is empty, remove the track
+            if (musicTrack.randomPool.length === 0) {
+              timeline.tracks = timeline.tracks.filter(t => t.id !== musicTrack.id);
+            }
+          } else if (musicTrack.clips[index]) {
+            // Remove the specific clip
+            musicTrack.clips.splice(index, 1);
+
+            // If no more clips, remove the track
+            if (musicTrack.clips.length === 0) {
+              timeline.tracks = timeline.tracks.filter(t => t.id !== musicTrack.id);
+            }
+          }
+
+          renderTimeline();
+          updateConvertButton();
+          populateMetadataTable();
+
+          // Update the UI list
+          const musicList = document.getElementById('music-list');
+          const musicDropZone = document.getElementById('music-drop-zone');
+          const musicCount = document.getElementById('music-count');
+
+          // Get remaining music files count
+          const remainingCount = musicTrack.mode === 'random' && musicTrack.randomPool
+            ? musicTrack.randomPool.length
+            : musicTrack.clips.length;
+
+          if (remainingCount === 0) {
+            // No more files, hide list and show drop zone
+            if (musicList) musicList.style.display = 'none';
+            if (musicDropZone) musicDropZone.style.display = 'flex';
+            if (musicCount) musicCount.textContent = '0 tracks';
+          } else {
+            // Rebuild the list
+            musicTable.innerHTML = '';
+
+            if (musicTrack.mode === 'random' && musicTrack.randomPool) {
+              musicTrack.randomPool.forEach((filePath, idx) => {
+                const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
+                const musicItem = createFileItem({
+                  fileName,
+                  index: idx,
+                  dataAttribute: 'data-music-index',
+                  metaText: '🎲 Random Pool'
+                });
+                musicTable.appendChild(musicItem);
+              });
+            } else {
+              musicTrack.clips.forEach((clip, idx) => {
+                const musicItem = createFileItem({
+                  fileName: clip.sourceName,
+                  index: idx,
+                  dataAttribute: 'data-music-index',
+                  metaText: '📋 Sequential'
+                });
+                musicTable.appendChild(musicItem);
+              });
+            }
+
+            if (musicCount) {
+              musicCount.textContent = `${remainingCount} track${remainingCount !== 1 ? 's' : ''}`;
+            }
+          }
+
+          showToast('Music track removed', 'success');
+        }
+      }
+    });
+  }
+
+  console.log('✅ Bulk processing UI initialized');
+}, 100);
