@@ -224,25 +224,6 @@ npm run tauri build
 
 ---
 
-## 📋 Roadmap
-
-- [x] Bulk audio to video conversion
-- [x] Timeline editor with waveforms
-- [x] Random music pool
-- [x] Solid color backgrounds
-- [x] Bulk metadata editing
-- [x] Vimeo integration
-- [ ] YouTube integration
-- [ ] Google Drive integration
-- [ ] Video templates
-- [ ] Audio effects (EQ, compression)
-- [ ] Text overlays
-- [ ] Animated backgrounds
-- [ ] Cloud rendering
-- [ ] Collaboration features
-
----
-
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
