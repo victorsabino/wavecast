@@ -53,7 +53,7 @@ jobs:
             - **Windows**: `.msi` or `.exe`
             - **macOS**: `.dmg` (Apple Silicon & Intel)
             - **Linux**: `.AppImage` or `.deb`
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
 
       - name: Upload artifacts
