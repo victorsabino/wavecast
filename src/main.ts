@@ -2445,7 +2445,7 @@ function renderTrack(track: Track): HTMLElement {
   volumeSlider.max = '100';
   volumeSlider.value = String(track.volume);
   volumeSlider.className = 'timeline-track-volume-slider';
-  volumeSlider.orient = 'vertical'; // For Firefox
+  (volumeSlider as any).orient = 'vertical'; // For Firefox
   volumeSlider.addEventListener('input', (e) => {
     const newVolume = Number((e.target as HTMLInputElement).value);
     track.volume = newVolume;
@@ -2727,8 +2727,8 @@ async function selectImage() {
         // Hide the SVG and button, keep the drop zone visible with the preview
         const svg = imageDropZone.querySelector('svg');
         const button = imageDropZone.querySelector('button');
-        if (svg) (svg as HTMLElement).style.display = 'none';
-        if (button) (button as HTMLElement).style.display = 'none';
+        if (svg) (svg as any).style.display = 'none';
+        if (button) (button as any).style.display = 'none';
       }
 
       if (newImageOptions) {
