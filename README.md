@@ -13,6 +13,10 @@
 
 **Bulk audio-to-video converter for content creators, podcasters, and musicians**
 
+### [📥 Download Latest Release](https://github.com/victorsabino/wavecast/releases/latest)
+
+[Windows](https://github.com/victorsabino/wavecast/releases/latest/download/Wavecast_1.0.0_x64_en-US.msi) • [macOS](https://github.com/victorsabino/wavecast/releases/latest/download/Wavecast_1.0.0_universal.dmg) • [Linux](https://github.com/victorsabino/wavecast/releases/latest/download/wavecast_1.0.0_amd64.AppImage)
+
 </div>
 
 ---
