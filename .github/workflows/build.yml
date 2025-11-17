@@ -3,10 +3,15 @@ name: Build and Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release version (e.g., v1.0.1)'
+      bump:
+        description: 'Version bump type'
         required: true
-        default: 'v1.0.0'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: 'patch'
 
 permissions:
   contents: write
@@ -41,32 +46,55 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Update version in package.json and tauri.conf.json
+      - name: Bump version
+        id: bump_version
         shell: bash
         run: |
-          VERSION="${{ github.event.inputs.version }}"
-          # Remove 'v' prefix if present
-          VERSION_NUMBER="${VERSION#v}"
+          BUMP_TYPE="${{ github.event.inputs.bump }}"
 
-          echo "Updating version to $VERSION_NUMBER"
+          # Read current version from package.json
+          CURRENT_VERSION=$(node -e "console.log(require('./package.json').version)")
+          echo "Current version: $CURRENT_VERSION"
 
-          # Update package.json (cross-platform compatible)
-          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.version='$VERSION_NUMBER'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
+          # Split version into parts
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
 
-          # Update tauri.conf.json (cross-platform compatible)
-          node -e "const fs=require('fs'); const conf=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json')); conf.version='$VERSION_NUMBER'; fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2));"
+          # Bump based on type
+          case $BUMP_TYPE in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
 
-          echo "✅ Updated version to $VERSION_NUMBER"
-          grep -A 1 '"version"' package.json
-          grep -A 1 '"version"' src-tauri/tauri.conf.json
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          echo "New version: $NEW_VERSION (bump: $BUMP_TYPE)"
+
+          # Update package.json
+          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.version='$NEW_VERSION'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
+
+          # Update tauri.conf.json
+          node -e "const fs=require('fs'); const conf=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json')); conf.version='$NEW_VERSION'; fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2));"
+
+          echo "✅ Bumped version from $CURRENT_VERSION to $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.event.inputs.version }}
-          releaseName: 'Wavecast ${{ github.event.inputs.version }}'
+          tagName: ${{ steps.bump_version.outputs.tag }}
+          releaseName: 'Wavecast ${{ steps.bump_version.outputs.tag }}'
           releaseBody: |
             Wavecast - Transform audio into video, at scale.
 
