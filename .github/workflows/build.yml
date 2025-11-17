@@ -41,6 +41,25 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Update version in package.json and tauri.conf.json
+        shell: bash
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          # Remove 'v' prefix if present
+          VERSION_NUMBER="${VERSION#v}"
+
+          echo "Updating version to $VERSION_NUMBER"
+
+          # Update package.json (cross-platform compatible)
+          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.version='$VERSION_NUMBER'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
+
+          # Update tauri.conf.json (cross-platform compatible)
+          node -e "const fs=require('fs'); const conf=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json')); conf.version='$VERSION_NUMBER'; fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2));"
+
+          echo "✅ Updated version to $VERSION_NUMBER"
+          grep -A 1 '"version"' package.json
+          grep -A 1 '"version"' src-tauri/tauri.conf.json
+
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
