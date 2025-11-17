@@ -18,7 +18,6 @@ src-tauri/target
 # Backup files
 *.bak
 *-old.*
-*-new.*
 
 # Temporary files
 *.local
