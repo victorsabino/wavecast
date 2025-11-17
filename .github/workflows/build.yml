@@ -2,6 +2,11 @@ name: Build and Release
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.1)'
+        required: true
+        default: 'v1.0.0'
 
 permissions:
   contents: write
@@ -41,8 +46,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Wavecast v__VERSION__'
+          tagName: ${{ github.event.inputs.version }}
+          releaseName: 'Wavecast ${{ github.event.inputs.version }}'
           releaseBody: |
             Wavecast - Transform audio into video, at scale.
 
