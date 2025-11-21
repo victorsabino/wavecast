@@ -60,6 +60,9 @@ interface ProcessedVideo {
 let videoMetadataList: VideoMetadata[] = [];
 let processedVideos: ProcessedVideo[] = [];
 
+// Dialog state management
+let isDialogOpen = false;
+
 let currentAudio: HTMLAudioElement | null = null;
 let currentPlayingIndex: number | null = null;
 
@@ -2616,6 +2619,76 @@ function renderTimeline() {
   updatePlayheadPosition();
 }
 
+function renderMusicPoolUI() {
+  const musicList = document.getElementById('music-list');
+  const musicTable = document.getElementById('music-table');
+  const musicCount = document.getElementById('music-count');
+  const musicDropZone = document.getElementById('music-drop-zone');
+
+  if (!musicTable) return;
+
+  // Get all background tracks from timeline
+  const backgroundTracks = timeline.tracks.filter(t => t.type === 'background');
+
+  // If no background tracks, show drop zone and hide list
+  if (backgroundTracks.length === 0) {
+    if (musicList) musicList.style.display = 'none';
+    if (musicDropZone) musicDropZone.style.display = 'flex';
+    if (musicCount) musicCount.textContent = '0 tracks';
+    musicTable.innerHTML = '';
+    return;
+  }
+
+  // Show music list, hide drop zone
+  if (musicList) musicList.style.display = 'block';
+  if (musicDropZone) musicDropZone.style.display = 'none';
+
+  // Clear existing items
+  musicTable.innerHTML = '';
+
+  // Collect all files from all background tracks
+  let totalFileCount = 0;
+  let globalIndex = 0;
+
+  backgroundTracks.forEach(track => {
+    if (track.mode === 'random' && track.randomPool) {
+      // Add files from random pool
+      track.randomPool.forEach((filePath) => {
+        const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
+        const musicItem = createFileItem({
+          fileName,
+          index: globalIndex,
+          dataAttribute: 'data-music-index',
+          metaText: '🎲 Random Pool'
+        });
+        musicTable.appendChild(musicItem);
+        globalIndex++;
+        totalFileCount++;
+      });
+    } else {
+      // Add files from clips (sequential mode)
+      track.clips.forEach((clip) => {
+        const musicItem = createFileItem({
+          fileName: clip.sourceName,
+          index: globalIndex,
+          dataAttribute: 'data-music-index',
+          metaText: '📋 Sequential'
+        });
+        musicTable.appendChild(musicItem);
+        globalIndex++;
+        totalFileCount++;
+      });
+    }
+  });
+
+  // Update count badge
+  if (musicCount) {
+    musicCount.textContent = `${totalFileCount} track${totalFileCount !== 1 ? 's' : ''}`;
+  }
+
+  console.log(`Rendered ${totalFileCount} music files from ${backgroundTracks.length} background track(s)`);
+}
+
 function updatePlayheadPosition() {
   if (!timelinePlayhead) return;
   // CRITICAL: Timeline container has padding-left for track headers.
@@ -2983,7 +3056,14 @@ async function selectAudioForTrack(trackId: string) {
 }
 
 async function addNewTrackWithFiles() {
+  // Bug #1 Fix: Guard flag to prevent multiple dialogs
+  if (isDialogOpen) {
+    console.log('Dialog already open, ignoring request');
+    return;
+  }
+
   try {
+    isDialogOpen = true;
     console.log('addNewTrackWithFiles called');
 
     // Show mode selection dialog
@@ -3020,42 +3100,92 @@ async function addNewTrackWithFiles() {
     console.log('Dialog styles:', window.getComputedStyle(modeDialog).display, window.getComputedStyle(modeDialog).zIndex);
 
     const processMode = async (selectedMode: 'single' | 'random') => {
-      // Open file selection based on mode
-      const selected = await open({
-        multiple: true,
-        filters: [{
-          name: 'Audio',
-          extensions: ['mp3', 'mp4'] // Support mp4 audio as requested
-        }]
-      });
+      // Bug #6 Fix: Add error handling around Tauri file picker
+      try {
+        // Open file selection based on mode
+        const selected = await open({
+          multiple: true,
+          filters: [{
+            name: 'Audio',
+            extensions: ['mp3', 'mp4'] // Support mp4 audio as requested
+          }]
+        });
 
-      console.log('File selection result:', selected);
+        console.log('File selection result:', selected);
 
-      if (selected) {
-        // User selected files, remove dialog and process
-        document.body.removeChild(modeDialog);
-        return { mode: selectedMode, files: selected };
-      } else {
-        // User cancelled file picker, keep dialog open
+        if (selected) {
+          // User selected files, return result (dialog cleanup happens in handlers)
+          return { mode: selectedMode, files: selected };
+        } else {
+          // User cancelled file picker, return null
+          return null;
+        }
+      } catch (error) {
+        console.error('Error opening file picker:', error);
         return null;
       }
     };
 
-    const result = await new Promise<{ mode: 'single' | 'random', files: string | string[] } | null>((resolve) => {
-      document.getElementById('mode-single')?.addEventListener('click', async () => {
-        const result = await processMode('single');
-        if (result) resolve(result);
-        // If result is null, dialog stays open for user to try again
-      });
-      document.getElementById('mode-random')?.addEventListener('click', async () => {
-        const result = await processMode('random');
-        if (result) resolve(result);
-        // If result is null, dialog stays open for user to try again
-      });
-      document.getElementById('mode-cancel')?.addEventListener('click', () => {
+    // Bug #3 Fix: Named handler functions for proper cleanup
+    const cleanupDialog = () => {
+      if (document.body.contains(modeDialog)) {
         document.body.removeChild(modeDialog);
+      }
+    };
+
+    const result = await new Promise<{ mode: 'single' | 'random', files: string | string[] } | null>((resolve) => {
+      // Get button references FIRST (before handlers that use them)
+      const singleBtn = document.getElementById('mode-single');
+      const randomBtn = document.getElementById('mode-random');
+      const cancelBtn = document.getElementById('mode-cancel');
+
+      // Named handler functions
+      const handleSingleMode = async () => {
+        const result = await processMode('single');
+        // Bug #2 Fix: Always resolve, even if result is null
+        cleanupDialog();
+        // Bug #3 Fix: Remove listeners before resolving
+        singleBtn?.removeEventListener('click', handleSingleMode);
+        randomBtn?.removeEventListener('click', handleRandomMode);
+        cancelBtn?.removeEventListener('click', handleCancel);
+        modeDialog.removeEventListener('click', handleBackdropClick);
+        resolve(result);
+      };
+
+      const handleRandomMode = async () => {
+        const result = await processMode('random');
+        // Bug #2 Fix: Always resolve, even if result is null
+        cleanupDialog();
+        // Bug #3 Fix: Remove listeners before resolving
+        singleBtn?.removeEventListener('click', handleSingleMode);
+        randomBtn?.removeEventListener('click', handleRandomMode);
+        cancelBtn?.removeEventListener('click', handleCancel);
+        modeDialog.removeEventListener('click', handleBackdropClick);
+        resolve(result);
+      };
+
+      const handleCancel = () => {
+        cleanupDialog();
+        // Bug #3 Fix: Remove listeners before resolving
+        singleBtn?.removeEventListener('click', handleSingleMode);
+        randomBtn?.removeEventListener('click', handleRandomMode);
+        cancelBtn?.removeEventListener('click', handleCancel);
+        modeDialog.removeEventListener('click', handleBackdropClick);
         resolve(null);
-      });
+      };
+
+      // Bug #5 Fix: Add backdrop click handler
+      const handleBackdropClick = (e: Event) => {
+        if (e.target === modeDialog) {
+          handleCancel();
+        }
+      };
+
+      // Attach event listeners
+      singleBtn?.addEventListener('click', handleSingleMode);
+      randomBtn?.addEventListener('click', handleRandomMode);
+      cancelBtn?.addEventListener('click', handleCancel);
+      modeDialog.addEventListener('click', handleBackdropClick);
     });
 
     if (!result) return; // User cancelled
@@ -3074,7 +3204,7 @@ async function addNewTrackWithFiles() {
         const newTrack: Track = {
           id: generateTrackId(),
           type: 'background',
-          name: `Music Track ${timeline.tracks.length + 1}`,
+          name: `Music Track ${nextTrackId - 1}`,
           clips: [],
           volume: 100,
           muted: false,
@@ -3104,7 +3234,7 @@ async function addNewTrackWithFiles() {
         const newTrack: Track = {
           id: generateTrackId(),
           type: 'background',
-          name: `Music Track ${timeline.tracks.length + 1}`,
+          name: `Music Track ${nextTrackId - 1}`,
           clips: [],
           volume: 100,
           muted: false,
@@ -3139,50 +3269,14 @@ async function addNewTrackWithFiles() {
       updateVideoPreview();
       populateMetadataTable();
 
-      // Also update the new bulk processing UI
-      const musicList = document.getElementById('music-list');
-      const musicTable = document.getElementById('music-table');
-      const musicCount = document.getElementById('music-count');
-
-      if (musicList && musicTable) {
-        // Show the music list container and hide drop zone
-        musicList.style.display = 'block';
-        console.log('🔍 musicList display:', musicList.style.display);
-        console.log('🔍 musicList computed style:', window.getComputedStyle(musicList).display);
-        console.log('🔍 musicTable children count:', musicTable.children.length);
-        const musicDropZone = document.getElementById('music-drop-zone');
-        if (musicDropZone) {
-          musicDropZone.style.display = 'none';
-        }
-
-        // Update count
-        if (musicCount) {
-          musicCount.textContent = `${files.length} track${files.length !== 1 ? 's' : ''}`;
-        }
-
-        // Clear existing items
-        musicTable.innerHTML = '';
-
-        // Add each music file to the list
-        files.forEach((filePath, index) => {
-          const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
-          const metaText = mode === 'random' ? '🎲 Random Pool' : '📋 Sequential';
-          const musicItem = createFileItem({
-            fileName,
-            index,
-            dataAttribute: 'data-music-index',
-            metaText
-          });
-          console.log('🎯 NEW CODE: Created music item:', musicItem);
-          console.log('🎯 Music item HTML:', musicItem.innerHTML);
-          musicTable.appendChild(musicItem);
-        });
-
-        console.log(`Added ${files.length} music files to UI (${mode} mode)`);
-      }
+      // Update the Music Pool UI to show all tracks
+      renderMusicPoolUI();
     }
   } catch (error) {
     console.error('Error adding new track with files:', error);
+  } finally {
+    // Bug #1 Fix: Always reset flag in finally block
+    isDialogOpen = false;
   }
 }
 
@@ -4666,14 +4760,8 @@ setTimeout(() => {
       updateConvertButton();
       populateMetadataTable();
 
-      // Hide music list and show drop zone
-      const musicList = document.getElementById('music-list');
-      const musicDropZone = document.getElementById('music-drop-zone');
-      const musicCount = document.getElementById('music-count');
-
-      if (musicList) musicList.style.display = 'none';
-      if (musicDropZone) musicDropZone.style.display = 'flex';
-      if (musicCount) musicCount.textContent = '0 tracks';
+      // Update the Music Pool UI
+      renderMusicPoolUI();
 
       showToast('All music tracks cleared', 'success');
     });
@@ -4708,29 +4796,43 @@ setTimeout(() => {
       const deleteBtn = target.closest('[data-music-index]');
 
       if (deleteBtn) {
-        const index = parseInt(deleteBtn.getAttribute('data-music-index') || '0');
-        console.log('Delete music file at index:', index);
+        const globalIndex = parseInt(deleteBtn.getAttribute('data-music-index') || '0');
+        console.log('Delete music file at global index:', globalIndex);
 
-        // Find the background track that contains music files
-        const musicTrack = timeline.tracks.find(t => t.type === 'background');
+        // Find which track and local index this global index maps to
+        const backgroundTracks = timeline.tracks.filter(t => t.type === 'background');
+        let currentGlobalIndex = 0;
+        let targetTrack: Track | null = null;
+        let localIndex = -1;
 
-        if (musicTrack) {
-          // Check if it's a random mode track with a pool
-          if (musicTrack.mode === 'random' && musicTrack.randomPool) {
-            // Remove from random pool
-            musicTrack.randomPool.splice(index, 1);
+        for (const track of backgroundTracks) {
+          const fileCount = track.mode === 'random' && track.randomPool
+            ? track.randomPool.length
+            : track.clips.length;
+
+          if (globalIndex < currentGlobalIndex + fileCount) {
+            targetTrack = track;
+            localIndex = globalIndex - currentGlobalIndex;
+            break;
+          }
+          currentGlobalIndex += fileCount;
+        }
+
+        if (targetTrack && localIndex >= 0) {
+          // Remove the file from the track
+          if (targetTrack.mode === 'random' && targetTrack.randomPool) {
+            targetTrack.randomPool.splice(localIndex, 1);
 
             // If pool is empty, remove the track
-            if (musicTrack.randomPool.length === 0) {
-              timeline.tracks = timeline.tracks.filter(t => t.id !== musicTrack.id);
+            if (targetTrack.randomPool.length === 0) {
+              timeline.tracks = timeline.tracks.filter(t => t.id !== targetTrack.id);
             }
-          } else if (musicTrack.clips[index]) {
-            // Remove the specific clip
-            musicTrack.clips.splice(index, 1);
+          } else if (targetTrack.clips[localIndex]) {
+            targetTrack.clips.splice(localIndex, 1);
 
             // If no more clips, remove the track
-            if (musicTrack.clips.length === 0) {
-              timeline.tracks = timeline.tracks.filter(t => t.id !== musicTrack.id);
+            if (targetTrack.clips.length === 0) {
+              timeline.tracks = timeline.tracks.filter(t => t.id !== targetTrack.id);
             }
           }
 
@@ -4738,52 +4840,8 @@ setTimeout(() => {
           updateConvertButton();
           populateMetadataTable();
 
-          // Update the UI list
-          const musicList = document.getElementById('music-list');
-          const musicDropZone = document.getElementById('music-drop-zone');
-          const musicCount = document.getElementById('music-count');
-
-          // Get remaining music files count
-          const remainingCount = musicTrack.mode === 'random' && musicTrack.randomPool
-            ? musicTrack.randomPool.length
-            : musicTrack.clips.length;
-
-          if (remainingCount === 0) {
-            // No more files, hide list and show drop zone
-            if (musicList) musicList.style.display = 'none';
-            if (musicDropZone) musicDropZone.style.display = 'flex';
-            if (musicCount) musicCount.textContent = '0 tracks';
-          } else {
-            // Rebuild the list
-            musicTable.innerHTML = '';
-
-            if (musicTrack.mode === 'random' && musicTrack.randomPool) {
-              musicTrack.randomPool.forEach((filePath, idx) => {
-                const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
-                const musicItem = createFileItem({
-                  fileName,
-                  index: idx,
-                  dataAttribute: 'data-music-index',
-                  metaText: '🎲 Random Pool'
-                });
-                musicTable.appendChild(musicItem);
-              });
-            } else {
-              musicTrack.clips.forEach((clip, idx) => {
-                const musicItem = createFileItem({
-                  fileName: clip.sourceName,
-                  index: idx,
-                  dataAttribute: 'data-music-index',
-                  metaText: '📋 Sequential'
-                });
-                musicTable.appendChild(musicItem);
-              });
-            }
-
-            if (musicCount) {
-              musicCount.textContent = `${remainingCount} track${remainingCount !== 1 ? 's' : ''}`;
-            }
-          }
+          // Update the Music Pool UI
+          renderMusicPoolUI();
 
           showToast('Music track removed', 'success');
         }
