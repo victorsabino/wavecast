@@ -475,9 +475,13 @@ fn convert_to_video(
         let concat_list_path = audio_dir.join("concat_list.txt");
 
         // Create concat file
+        // Convert backslashes to forward slashes for FFmpeg compatibility on Windows
         let concat_content = audio_paths
             .iter()
-            .map(|p| format!("file '{}'", p))
+            .map(|p| {
+                let normalized_path = p.replace('\\', "/");
+                format!("file '{}'", normalized_path)
+            })
             .collect::<Vec<_>>()
             .join("\n");
 

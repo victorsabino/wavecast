@@ -39,6 +39,25 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "Wavecast",
+    "copyright": "Copyright (c) Wavecast. All rights reserved.",
+    "category": "Productivity",
+    "shortDescription": "Transform audio into video, at scale",
+    "longDescription": "Wavecast is a bulk audio-to-video converter for content creators that helps transform audio files into video format efficiently.",
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "wix": {
+        "language": ["en-US"]
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      }
+    }
   }
 }
