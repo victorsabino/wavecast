@@ -121,7 +121,7 @@ fn generate_filter_complex(clips: &[ClipWithVolume], unique_sources: &[String], 
         let base_offset = if has_bg_music { 2 } else { 1 };
         let input_idx = unique_sources.iter().position(|s| s == &clip.source_file).unwrap() + base_offset;
 
-        println!("  Clip {}: source '{}' -> FFmpeg input index {}, track volume: {}", i, clip.source_file, input_idx, track_vol);
+        eprintln!("  Clip {}: source '{}' -> FFmpeg input index {}, track volume: {}", i, clip.source_file, input_idx, track_vol);
 
         // Create filter for each clip: trim, adjust timing, delay to position, apply track volume
         let trim_end = clip.duration + clip.trim_start;
@@ -148,16 +148,11 @@ fn generate_filter_complex(clips: &[ClipWithVolume], unique_sources: &[String], 
 
 #[tauri::command]
 fn create_solid_color_image(color: String, width: u32, height: u32) -> Result<String, String> {
-    println!("=== Creating solid color image ===");
-    println!("Color: {}, Size: {}x{}", color, width, height);
-
     // Parse hex color
     let color_str = color.trim_start_matches('#');
     let r = u8::from_str_radix(&color_str[0..2], 16).map_err(|e| format!("Invalid color: {}", e))?;
     let g = u8::from_str_radix(&color_str[2..4], 16).map_err(|e| format!("Invalid color: {}", e))?;
     let b = u8::from_str_radix(&color_str[4..6], 16).map_err(|e| format!("Invalid color: {}", e))?;
-
-    println!("RGB: {}, {}, {}", r, g, b);
 
     // Create a simple PNG using raw RGBA data
     let temp_dir = std::env::temp_dir();
@@ -166,8 +161,6 @@ fn create_solid_color_image(color: String, width: u32, height: u32) -> Result<St
         .unwrap()
         .as_secs();
     let temp_path = temp_dir.join(format!("solid_color_{}.png", timestamp));
-
-    println!("Output path: {}", temp_path.display());
 
     // Create image buffer
     let mut imgbuf = image::ImageBuffer::new(width, height);
@@ -179,13 +172,8 @@ fn create_solid_color_image(color: String, width: u32, height: u32) -> Result<St
 
     // Save the image
     imgbuf.save(&temp_path)
-        .map_err(|e| {
-            let err_msg = format!("Failed to save image: {}", e);
-            println!("ERROR: {}", err_msg);
-            err_msg
-        })?;
+        .map_err(|e| format!("Failed to save image: {}", e))?;
 
-    println!("Solid color image created successfully");
     Ok(temp_path.to_str().unwrap().to_string())
 }
 
@@ -198,28 +186,29 @@ fn convert_timeline_to_video(
     bg_music_path: Option<String>,
     bg_music_volume: i32,
     main_audio_volume: i32,
+    output_filename: Option<String>,
 ) -> Result<String, String> {
-    println!("=== Starting timeline-based video conversion ===");
-    println!("Image path: {}", image_path);
-    println!("Timeline tracks: {}", timeline.tracks.len());
-    println!("Background style: {}", background_style);
-    println!("Main audio volume: {}", main_audio_volume);
-    println!("BG music path: {:?}", bg_music_path);
-    println!("BG music volume: {}", bg_music_volume);
+    eprintln!("=== Starting timeline-based video conversion ===");
+    eprintln!("Image path: {}", image_path);
+    eprintln!("Timeline tracks: {}", timeline.tracks.len());
+    eprintln!("Background style: {}", background_style);
+    eprintln!("Main audio volume: {}", main_audio_volume);
+    eprintln!("BG music path: {:?}", bg_music_path);
+    eprintln!("BG music volume: {}", bg_music_volume);
 
     // Download FFmpeg if not present
-    println!("Checking for FFmpeg...");
+    eprintln!("Checking for FFmpeg...");
     auto_download().map_err(|e| {
         let err_msg = format!("Failed to download FFmpeg: {}", e);
-        println!("ERROR: {}", err_msg);
+        eprintln!("ERROR: {}", err_msg);
         err_msg
     })?;
-    println!("FFmpeg ready");
+    eprintln!("FFmpeg ready");
 
     // Get all clips from all audio tracks with their track volumes
     let mut all_clips: Vec<ClipWithVolume> = Vec::new();
     for (i, track) in timeline.tracks.iter().enumerate() {
-        println!("Track {}: {} clips, volume: {}", i, track.clips.len(), track.volume);
+        eprintln!("Track {}: {} clips, volume: {}", i, track.clips.len(), track.volume);
         for clip in &track.clips {
             all_clips.push(ClipWithVolume {
                 clip: clip.clone(),
@@ -230,25 +219,41 @@ fn convert_timeline_to_video(
 
     if all_clips.is_empty() {
         let err_msg = "No audio clips in timeline".to_string();
-        println!("ERROR: {}", err_msg);
+        eprintln!("ERROR: {}", err_msg);
         return Err(err_msg);
     }
-    println!("Total clips to process: {}", all_clips.len());
+    eprintln!("Total clips to process: {}", all_clips.len());
 
     // Create output path
     let first_clip_with_vol = &all_clips[0];
-    println!("First clip source: {}", first_clip_with_vol.clip.source_file);
+    eprintln!("First clip source: {}", first_clip_with_vol.clip.source_file);
     let audio_dir = PathBuf::from(&first_clip_with_vol.clip.source_file)
         .parent()
         .ok_or_else(|| {
-            println!("ERROR: Could not determine audio directory");
+            eprintln!("ERROR: Could not determine audio directory");
             "Could not determine audio directory".to_string()
         })?
         .to_path_buf();
-    println!("Output directory: {}", audio_dir.display());
+    eprintln!("Output directory: {}", audio_dir.display());
 
-    let output_path = audio_dir.join("output.mp4");
-    println!("Output path: {}", output_path.display());
+    // Use provided filename or default to "output.mp4"
+    let output_name = output_filename
+        .map(|name| {
+            // Sanitize filename: remove invalid characters and ensure .mp4 extension
+            let sanitized = name
+                .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_")
+                .trim()
+                .to_string();
+            if sanitized.to_lowercase().ends_with(".mp4") {
+                sanitized
+            } else {
+                format!("{}.mp4", sanitized)
+            }
+        })
+        .unwrap_or_else(|| "output.mp4".to_string());
+
+    let output_path = audio_dir.join(&output_name);
+    eprintln!("Output path: {}", output_path.display());
 
     // Determine filter based on background style
     let video_filter = match background_style.as_str() {
@@ -271,7 +276,7 @@ fn convert_timeline_to_video(
     // Add background music as input if provided
     let has_bg_music = bg_music_path.is_some();
     if let Some(ref music_path) = bg_music_path {
-        println!("Adding background music input: {}", music_path);
+        eprintln!("Adding background music input: {}", music_path);
         cmd.input(music_path);
     }
 
@@ -288,13 +293,13 @@ fn convert_timeline_to_video(
     }
 
     // Generate audio filter complex
-    println!("Generating audio filter complex...");
+    eprintln!("Generating audio filter complex...");
     let mut audio_filter = generate_filter_complex(&all_clips, &unique_sources, main_volume, has_bg_music);
 
     // If background music is provided, mix it with the main audio
     if has_bg_music {
         let bg_volume = bg_music_volume as f64 / 100.0;
-        println!("Adding background music mixing (volume: {})", bg_volume);
+        eprintln!("Adding background music mixing (volume: {})", bg_volume);
 
         // The filter complex from generate_filter_complex outputs to [aout]
         // We need to mix it with the background music (input 1)
@@ -308,7 +313,7 @@ fn convert_timeline_to_video(
         );
     }
 
-    println!("Final audio filter complex: {}", audio_filter);
+    eprintln!("Final audio filter complex: {}", audio_filter);
 
     let audio_output_label = if has_bg_music { "[final]" } else { "[aout]" };
 
@@ -329,41 +334,41 @@ fn convert_timeline_to_video(
     .output(output_path.to_str().unwrap());
 
     // Log the complete FFmpeg command for debugging
-    println!("=== FFmpeg Command Debug ===");
-    println!("Image path: {}", image_path);
+    eprintln!("=== FFmpeg Command Debug ===");
+    eprintln!("Image path: {}", image_path);
     if has_bg_music {
         if let Some(ref music_path) = bg_music_path {
-            println!("Music path: {}", music_path);
+            eprintln!("Music path: {}", music_path);
         }
     }
-    println!("Unique audio sources: {:?}", unique_sources);
-    println!("Video filter: {}", video_filter);
-    println!("Audio filter: {}", audio_filter);
-    println!("Output path: {}", output_path.display());
-    println!("===========================");
+    eprintln!("Unique audio sources: {:?}", unique_sources);
+    eprintln!("Video filter: {}", video_filter);
+    eprintln!("Audio filter: {}", audio_filter);
+    eprintln!("Output path: {}", output_path.display());
+    eprintln!("===========================");
 
     // Spawn process and capture events
-    println!("Spawning FFmpeg process...");
+    eprintln!("Spawning FFmpeg process...");
     let mut child = cmd.spawn()
         .map_err(|e| {
             let err_msg = format!("Failed to spawn FFmpeg: {}", e);
-            println!("ERROR: {}", err_msg);
+            eprintln!("ERROR: {}", err_msg);
             err_msg
         })?;
-    println!("FFmpeg process started");
+    eprintln!("FFmpeg process started");
 
     // Calculate total duration for progress percentage
     let total_duration: f64 = all_clips.iter()
         .map(|clip_with_vol| clip_with_vol.clip.start_time + clip_with_vol.clip.duration)
         .fold(0.0, f64::max);
-    println!("Total duration: {:.2}s", total_duration);
+    eprintln!("Total duration: {:.2}s", total_duration);
 
     // Iterate over FFmpeg events
-    println!("Processing FFmpeg output...");
+    eprintln!("Processing FFmpeg output...");
     let iter = child.iter()
         .map_err(|e| {
             let err_msg = format!("Failed to get FFmpeg iterator: {}", e);
-            println!("ERROR: {}", err_msg);
+            eprintln!("ERROR: {}", err_msg);
             err_msg
         })?;
 
@@ -390,36 +395,36 @@ fn convert_timeline_to_video(
             }
             FfmpegEvent::Log(_level, msg) => {
                 // Optionally log messages
-                println!("FFmpeg: {}", msg);
+                eprintln!("FFmpeg: {}", msg);
             }
             _ => {}
         }
     }
 
     // Wait for completion
-    println!("Waiting for FFmpeg to complete...");
+    eprintln!("Waiting for FFmpeg to complete...");
     let result = child.wait()
         .map_err(|e| {
             let err_msg = format!("Failed to execute FFmpeg: {}", e);
-            println!("ERROR: {}", err_msg);
+            eprintln!("ERROR: {}", err_msg);
             err_msg
         })?;
 
     if !result.success() {
         let err_msg = "FFmpeg encoding failed".to_string();
-        println!("ERROR: {}", err_msg);
-        println!("ERROR CONTEXT:");
-        println!("  - Image: {}", image_path);
-        println!("  - Audio sources: {:?}", unique_sources);
-        println!("  - Video filter: {}", video_filter);
-        println!("  - Audio filter: {}", audio_filter);
-        println!("  - Has BG music: {}", has_bg_music);
-        println!("  - Exit code: {:?}", result.code());
+        eprintln!("ERROR: {}", err_msg);
+        eprintln!("ERROR CONTEXT:");
+        eprintln!("  - Image: {}", image_path);
+        eprintln!("  - Audio sources: {:?}", unique_sources);
+        eprintln!("  - Video filter: {}", video_filter);
+        eprintln!("  - Audio filter: {}", audio_filter);
+        eprintln!("  - Has BG music: {}", has_bg_music);
+        eprintln!("  - Exit code: {:?}", result.code());
         return Err(err_msg);
     }
 
-    println!("=== Timeline video conversion completed successfully ===");
-    println!("Output file: {}", output_path.display());
+    eprintln!("=== Timeline video conversion completed successfully ===");
+    eprintln!("Output file: {}", output_path.display());
     Ok(output_path.to_str().unwrap().to_string())
 }
 
@@ -432,46 +437,46 @@ fn convert_to_video(
     bg_music_volume: i32,
     main_audio_volume: i32,
 ) -> Result<String, String> {
-    println!("=== Starting video conversion ===");
-    println!("Image path: {}", image_path);
-    println!("Audio paths: {:?}", audio_paths);
-    println!("Background style: {}", background_style);
-    println!("BG music path: {:?}", bg_music_path);
-    println!("BG music volume: {}", bg_music_volume);
-    println!("Main audio volume: {}", main_audio_volume);
+    eprintln!("=== Starting video conversion ===");
+    eprintln!("Image path: {}", image_path);
+    eprintln!("Audio paths: {:?}", audio_paths);
+    eprintln!("Background style: {}", background_style);
+    eprintln!("BG music path: {:?}", bg_music_path);
+    eprintln!("BG music volume: {}", bg_music_volume);
+    eprintln!("Main audio volume: {}", main_audio_volume);
 
     // Download FFmpeg if not present (will use cached version if available)
-    println!("Checking for FFmpeg...");
+    eprintln!("Checking for FFmpeg...");
     auto_download().map_err(|e| {
         let err_msg = format!("Failed to download FFmpeg: {}", e);
-        println!("ERROR: {}", err_msg);
+        eprintln!("ERROR: {}", err_msg);
         err_msg
     })?;
-    println!("FFmpeg ready");
+    eprintln!("FFmpeg ready");
 
     // Create output path in the same directory as the first audio file
     let first_audio = audio_paths.first()
         .ok_or_else(|| {
-            println!("ERROR: No audio files provided");
+            eprintln!("ERROR: No audio files provided");
             "No audio files provided".to_string()
         })?;
-    println!("First audio file: {}", first_audio);
+    eprintln!("First audio file: {}", first_audio);
 
     let audio_dir = PathBuf::from(first_audio)
         .parent()
         .ok_or_else(|| {
-            println!("ERROR: Could not determine audio directory from path: {}", first_audio);
+            eprintln!("ERROR: Could not determine audio directory from path: {}", first_audio);
             "Could not determine audio directory".to_string()
         })?
         .to_path_buf();
-    println!("Output directory: {}", audio_dir.display());
+    eprintln!("Output directory: {}", audio_dir.display());
 
     let output_path = audio_dir.join("output.mp4");
-    println!("Output path: {}", output_path.display());
+    eprintln!("Output path: {}", output_path.display());
 
     // If multiple audio files, concatenate them first
     let final_audio_path = if audio_paths.len() > 1 {
-        println!("Multiple audio files detected, concatenating {} files...", audio_paths.len());
+        eprintln!("Multiple audio files detected, concatenating {} files...", audio_paths.len());
         let concat_list_path = audio_dir.join("concat_list.txt");
 
         // Create concat file
@@ -488,13 +493,13 @@ fn convert_to_video(
         std::fs::write(&concat_list_path, &concat_content)
             .map_err(|e| {
                 let err_msg = format!("Failed to create concat list: {}", e);
-                println!("ERROR: {}", err_msg);
+                eprintln!("ERROR: {}", err_msg);
                 err_msg
             })?;
-        println!("Created concat list at: {}", concat_list_path.display());
+        eprintln!("Created concat list at: {}", concat_list_path.display());
 
         let temp_audio = audio_dir.join("temp_combined.mp3");
-        println!("Concatenating to: {}", temp_audio.display());
+        eprintln!("Concatenating to: {}", temp_audio.display());
 
         // Concatenate audio files
         let mut concat_cmd = FfmpegCommand::new();
@@ -505,36 +510,36 @@ fn convert_to_video(
             .overwrite()
             .output(temp_audio.to_str().unwrap());
 
-        println!("Running FFmpeg concat command...");
+        eprintln!("Running FFmpeg concat command...");
         let concat_result = concat_cmd.spawn()
             .map_err(|e| {
                 let err_msg = format!("Failed to spawn FFmpeg concat: {}", e);
-                println!("ERROR: {}", err_msg);
+                eprintln!("ERROR: {}", err_msg);
                 err_msg
             })?
             .wait()
             .map_err(|e| {
                 let err_msg = format!("Failed to concatenate audio: {}", e);
-                println!("ERROR: {}", err_msg);
+                eprintln!("ERROR: {}", err_msg);
                 err_msg
             })?;
 
         if !concat_result.success() {
             let err_msg = "FFmpeg concatenation failed".to_string();
-            println!("ERROR: {}", err_msg);
+            eprintln!("ERROR: {}", err_msg);
             return Err(err_msg);
         }
-        println!("Audio concatenation successful");
+        eprintln!("Audio concatenation successful");
 
         // Clean up concat list
         let _ = std::fs::remove_file(concat_list_path);
 
         temp_audio.to_str().unwrap().to_string()
     } else {
-        println!("Single audio file, no concatenation needed");
+        eprintln!("Single audio file, no concatenation needed");
         audio_paths[0].clone()
     };
-    println!("Final audio path: {}", final_audio_path);
+    eprintln!("Final audio path: {}", final_audio_path);
 
     // Determine filter based on background style
     let video_filter = match background_style.as_str() {
@@ -544,24 +549,24 @@ fn convert_to_video(
         "center" => "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
         _ => "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720",
     };
-    println!("Video filter: {}", video_filter);
+    eprintln!("Video filter: {}", video_filter);
 
     // Calculate volumes as decimals (0-100 -> 0.0-1.0)
     let main_volume = main_audio_volume as f32 / 100.0;
-    println!("Main volume: {}", main_volume);
+    eprintln!("Main volume: {}", main_volume);
 
     // If background music is provided, we need to mix the audio
     let _output = if let Some(bg_music) = bg_music_path {
-        println!("Background music detected: {}", bg_music);
+        eprintln!("Background music detected: {}", bg_music);
         let bg_volume = bg_music_volume as f32 / 100.0;
-        println!("Background music volume: {}", bg_volume);
+        eprintln!("Background music volume: {}", bg_volume);
 
         // Create audio filter for mixing: loop bg music, adjust volumes, and mix
         let audio_filter = format!(
             "[1:a]aloop=loop=-1:size=2e+09[bg];[bg]volume={}[bg_vol];[0:a]volume={}[main];[bg_vol][main]amix=inputs=2:duration=first:dropout_transition=2",
             bg_volume, main_volume
         );
-        println!("Audio filter: {}", audio_filter);
+        eprintln!("Audio filter: {}", audio_filter);
 
         let mut cmd = FfmpegCommand::new();
         cmd
@@ -582,32 +587,32 @@ fn convert_to_video(
             .overwrite()
             .output(output_path.to_str().unwrap());
 
-        println!("Running FFmpeg with background music...");
+        eprintln!("Running FFmpeg with background music...");
         let result = cmd.spawn()
             .map_err(|e| {
                 let err_msg = format!("Failed to spawn FFmpeg: {}", e);
-                println!("ERROR: {}", err_msg);
+                eprintln!("ERROR: {}", err_msg);
                 err_msg
             })?
             .wait()
             .map_err(|e| {
                 let err_msg = format!("Failed to execute FFmpeg: {}", e);
-                println!("ERROR: {}", err_msg);
+                eprintln!("ERROR: {}", err_msg);
                 err_msg
             })?;
 
         if !result.success() {
             let err_msg = "FFmpeg encoding failed (with background music)".to_string();
-            println!("ERROR: {}", err_msg);
+            eprintln!("ERROR: {}", err_msg);
             return Err(err_msg);
         }
-        println!("FFmpeg encoding successful (with background music)");
+        eprintln!("FFmpeg encoding successful (with background music)");
         result
     } else {
         // No background music, but still apply main audio volume
-        println!("No background music, encoding with main audio only");
+        eprintln!("No background music, encoding with main audio only");
         let audio_filter = format!("volume={}", main_volume);
-        println!("Audio filter: {}", audio_filter);
+        eprintln!("Audio filter: {}", audio_filter);
 
         let mut cmd = FfmpegCommand::new();
         cmd
@@ -627,38 +632,38 @@ fn convert_to_video(
             .overwrite()
             .output(output_path.to_str().unwrap());
 
-        println!("Running FFmpeg without background music...");
+        eprintln!("Running FFmpeg without background music...");
         let result = cmd.spawn()
             .map_err(|e| {
                 let err_msg = format!("Failed to spawn FFmpeg: {}", e);
-                println!("ERROR: {}", err_msg);
+                eprintln!("ERROR: {}", err_msg);
                 err_msg
             })?
             .wait()
             .map_err(|e| {
                 let err_msg = format!("Failed to execute FFmpeg: {}", e);
-                println!("ERROR: {}", err_msg);
+                eprintln!("ERROR: {}", err_msg);
                 err_msg
             })?;
 
         if !result.success() {
             let err_msg = "FFmpeg encoding failed (without background music)".to_string();
-            println!("ERROR: {}", err_msg);
+            eprintln!("ERROR: {}", err_msg);
             return Err(err_msg);
         }
-        println!("FFmpeg encoding successful (without background music)");
+        eprintln!("FFmpeg encoding successful (without background music)");
         result
     };
 
     // Clean up temporary combined audio if it exists
     if audio_paths.len() > 1 {
-        println!("Cleaning up temporary concatenated audio file...");
+        eprintln!("Cleaning up temporary concatenated audio file...");
         let temp_audio = audio_dir.join("temp_combined.mp3");
         let _ = std::fs::remove_file(temp_audio);
     }
 
-    println!("=== Video conversion completed successfully ===");
-    println!("Output file: {}", output_path.display());
+    eprintln!("=== Video conversion completed successfully ===");
+    eprintln!("Output file: {}", output_path.display());
     Ok(output_path.to_str().unwrap().to_string())
 }
 
@@ -785,12 +790,48 @@ async fn import_project(
     }
 }
 
+#[tauri::command]
+fn reveal_in_folder(path: String) -> Result<(), String> {
+    let path = PathBuf::from(&path);
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to reveal file: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to reveal file: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try xdg-open on the parent directory
+        if let Some(parent) = path.parent() {
+            std::process::Command::new("xdg-open")
+                .arg(parent)
+                .spawn()
+                .map_err(|e| format!("Failed to reveal file: {}", e))?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![convert_to_video, convert_timeline_to_video, upload_to_vimeo, export_project, import_project, create_solid_color_image])
+        .invoke_handler(tauri::generate_handler![convert_to_video, convert_timeline_to_video, upload_to_vimeo, export_project, import_project, create_solid_color_image, reveal_in_folder])
         .setup(|app| {
             // File menu
             let export_project_item = MenuItemBuilder::with_id("export_project", "Export Project")

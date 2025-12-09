@@ -55,6 +55,8 @@ interface ProcessedVideo {
   videoPath: string;
   metadata: VideoMetadata;
   status: 'success' | 'failed';
+  error?: string;
+  vimeoUrl?: string;
 }
 
 let videoMetadataList: VideoMetadata[] = [];
@@ -196,15 +198,24 @@ let assemblyTimeline: HTMLElement;
 let toastContainer: HTMLElement | null = null;
 
 function initToastContainer() {
-  if (!toastContainer) {
-    toastContainer = document.createElement('div');
-    toastContainer.className = 'toast-container';
-    document.body.appendChild(toastContainer);
+  if (!toastContainer || !document.body.contains(toastContainer)) {
+    // Check if one already exists in DOM
+    const existing = document.querySelector('.toast-container');
+    if (existing) {
+      toastContainer = existing as HTMLElement;
+    } else {
+      toastContainer = document.createElement('div');
+      toastContainer.className = 'toast-container';
+      document.body.appendChild(toastContainer);
+    }
+    console.log('initToastContainer: using', toastContainer, 'in body:', document.body.contains(toastContainer));
   }
 }
 
 function showToast(message: string, type: 'error' | 'warning' | 'success' | 'info' = 'info', duration = 3000) {
+  console.log('showToast called:', message, type);
   initToastContainer();
+  console.log('toastContainer:', toastContainer);
   if (!toastContainer) return;
 
   const toast = document.createElement('div');
@@ -240,7 +251,23 @@ function showToast(message: string, type: 'error' | 'warning' | 'success' | 'inf
     <div class="toast-message">${message}</div>
   `;
 
+  // Force visibility with inline styles
+  toast.style.cssText = `
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background: ${type === 'error' ? '#fee2e2' : type === 'success' ? '#d1fae5' : type === 'warning' ? '#fef3c7' : '#dbeafe'};
+    border-left: 4px solid ${type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : type === 'warning' ? '#f59e0b' : '#3b82f6'};
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    color: #1f2937;
+  `;
+
+  console.log('Appending toast to container:', toast);
   toastContainer.appendChild(toast);
+  console.log('Toast container children:', toastContainer.children.length);
 
   // Auto-dismiss after duration
   setTimeout(() => {
@@ -635,10 +662,15 @@ async function processAllVideos() {
   const colorTabActive = document.querySelector('.bg-tab[data-tab="color"]')?.classList.contains('active');
   const hasBackground = selectedImage || colorTabActive;
 
+  console.log('Background check:', { selectedImage, colorTabActive, hasBackground });
+
   if (!hasBackground) {
+    console.log('No background selected - showing error toast');
     showToast('Please select a background image or color', 'error');
     return;
   }
+
+  console.log('Background check passed, proceeding...');
 
   // Disable process button
   const processBtn = document.getElementById('process-all-btn') as HTMLButtonElement;
@@ -745,6 +777,9 @@ async function processAllVideos() {
         console.log(`  Audio: ${audioClip.sourceName}`);
         console.log(`  Music: ${bgMusicPath || 'None'}`);
 
+        // Generate output filename from audio file name (remove audio extension)
+        const outputFilename = audioClip.sourceName.replace(/\.(mp3|wav|m4a|ogg|flac|aac)$/i, '');
+
         // Call Rust backend to create video
         const result = await invoke<string>('convert_timeline_to_video', {
           imagePath: imagePathToUse,
@@ -752,7 +787,8 @@ async function processAllVideos() {
           backgroundStyle: backgroundStyle,
           bgMusicPath: bgMusicPath,
           bgMusicVolume: bgMusicVolume,
-          mainAudioVolume: mainAudioVolume
+          mainAudioVolume: mainAudioVolume,
+          outputFilename: outputFilename
         });
 
         console.log(`✅ Video ${videoNum} created:`, result);
@@ -770,12 +806,13 @@ async function processAllVideos() {
         console.error(`Failed to process video ${videoNum}:`, error);
         failCount++;
 
-        // Store failed result
+        // Store failed result with error message
         processedVideos.push({
           title: metadata.title || metadata.audioFileName,
           videoPath: '',
           metadata: metadata,
-          status: 'failed'
+          status: 'failed',
+          error: String(error)
         });
       }
     }
@@ -3734,6 +3771,14 @@ function showProcessedVideosModal() {
           </button>
         </td>
         <td>
+          <button class="icon-btn reveal-btn" data-path="${video.videoPath}" title="Show in folder">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+            Open
+          </button>
+        </td>
+        <td>
           <button class="icon-btn publish-btn" data-index="${index}" data-video-path="${video.videoPath}" data-title="${video.title}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -3748,7 +3793,8 @@ function showProcessedVideosModal() {
       row.innerHTML = `
         <td>${index + 1}</td>
         <td>${video.title}</td>
-        <td><span style="color: #ff6b6b;">Failed</span></td>
+        <td><span class="failed-status" data-index="${index}" style="color: #ff6b6b; cursor: pointer; text-decoration: underline;" title="Click to see error">Failed</span></td>
+        <td><span style="color: #999;">N/A</span></td>
         <td><span style="color: #999;">N/A</span></td>
       `;
     }
@@ -3764,6 +3810,21 @@ function showProcessedVideosModal() {
     });
   });
 
+  // Add event listeners to reveal buttons (open in folder)
+  tbody.querySelectorAll('.reveal-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const target = e.currentTarget as HTMLElement;
+      const path = target.dataset.path || '';
+      if (path) {
+        try {
+          await invoke('reveal_in_folder', { path });
+        } catch (error) {
+          console.error('Failed to reveal file:', error);
+        }
+      }
+    });
+  });
+
   // Add event listeners to publish buttons
   tbody.querySelectorAll('.publish-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
@@ -3773,6 +3834,19 @@ function showProcessedVideosModal() {
 
       // Upload to Vimeo
       await uploadSingleVideoToVimeo(videoPath, title, target as HTMLButtonElement);
+    });
+  });
+
+  // Add event listeners to failed status to show error
+  tbody.querySelectorAll('.failed-status').forEach(span => {
+    span.addEventListener('click', (e) => {
+      const index = parseInt((e.currentTarget as HTMLElement).dataset.index || '0');
+      const video = processedVideos[index];
+      if (video && video.error) {
+        showToast(`Error: ${video.error}`, 'error', 8000);
+      } else {
+        showToast('Unknown error occurred during processing', 'error', 5000);
+      }
     });
   });
 
@@ -3835,19 +3909,43 @@ async function uploadSingleVideoToVimeo(videoPath: string, title: string, button
 }
 
 // Upload all videos to Vimeo
+function showVimeoError(message: string) {
+  const errorDiv = document.getElementById('vimeo-error-message');
+  const errorText = document.getElementById('vimeo-error-text');
+  if (errorDiv && errorText) {
+    errorText.textContent = message;
+    errorDiv.style.display = 'block';
+  }
+}
+
+function hideVimeoError() {
+  const errorDiv = document.getElementById('vimeo-error-message');
+  if (errorDiv) {
+    errorDiv.style.display = 'none';
+  }
+}
+
 async function uploadAllVideosToVimeo() {
+  console.log('uploadAllVideosToVimeo called');
+  console.log('vimeoToken:', vimeoToken ? 'set' : 'not set');
+  console.log('processedVideos:', processedVideos);
+
   if (!vimeoToken) {
-    showToast('Please set your Vimeo access token in Settings first', 'error');
+    showVimeoError('Vimeo access token not set.');
     return;
   }
+
+  hideVimeoError();
 
   const successfulVideos = processedVideos.filter(v => v.status === 'success');
+  console.log('successfulVideos:', successfulVideos);
+
   if (successfulVideos.length === 0) {
-    showToast('No successful videos to upload', 'warning');
+    showVimeoError('No successful videos to upload.');
     return;
   }
 
-  const publishAllBtn = document.getElementById('publish-all-vimeo') as HTMLButtonElement;
+  const publishAllBtn = document.getElementById('publish-all-btn') as HTMLButtonElement;
   if (publishAllBtn) {
     publishAllBtn.disabled = true;
     publishAllBtn.textContent = 'Uploading...';
@@ -4051,6 +4149,17 @@ window.addEventListener("DOMContentLoaded", () => {
   // Publish all button - Vimeo only
   document.querySelector('#publish-all-btn')?.addEventListener('click', async () => {
     await uploadAllVideosToVimeo();
+  });
+
+  // Open settings link from Vimeo error message
+  document.querySelector('#open-settings-link')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    // Close the videos modal
+    const videosModal = document.getElementById('videos-result-modal');
+    if (videosModal) videosModal.style.display = 'none';
+    // Open settings modal
+    const settingsModal = document.getElementById('settings-modal');
+    if (settingsModal) settingsModal.style.display = 'flex';
   });
 
   // Video preview modal listeners

@@ -446,8 +446,9 @@
                 <tr>
                   <th style="width: 40px">#</th>
                   <th>Title</th>
-                  <th style="width: 120px">Preview</th>
-                  <th style="width: 150px">Actions</th>
+                  <th style="width: 100px">Preview</th>
+                  <th style="width: 100px">Location</th>
+                  <th style="width: 120px">Actions</th>
                 </tr>
               </thead>
               <tbody id="videos-result-tbody">
@@ -456,16 +457,22 @@
             </table>
           </div>
         </div>
-        <div class="modal-footer">
-          <button id="publish-all-btn" class="primary-btn">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            Publish All to Vimeo
-          </button>
-          <button id="close-videos-modal-btn" class="secondary-btn">Close</button>
+        <div class="modal-footer" style="flex-direction: column; gap: 12px;">
+          <div id="vimeo-error-message" style="display: none; color: #dc2626; font-size: 14px; text-align: center; padding: 8px; background: #fef2f2; border-radius: 6px; width: 100%;">
+            <span id="vimeo-error-text"></span>
+            <a href="#" id="open-settings-link" style="color: #dc2626; font-weight: 600; margin-left: 4px;">Open Settings</a>
+          </div>
+          <div style="display: flex; gap: 12px; justify-content: flex-end; width: 100%;">
+            <button id="publish-all-btn" class="primary-btn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Publish All to Vimeo
+            </button>
+            <button id="close-videos-modal-btn" class="secondary-btn">Close</button>
+          </div>
         </div>
       </div>
     </div>
